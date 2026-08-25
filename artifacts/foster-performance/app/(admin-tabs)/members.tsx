@@ -34,6 +34,7 @@ export default function AdminMembers() {
   const { token } = useAuth();
   const [users, setUsers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<any | null>(null);
   const [acting, setActing] = useState(false);
@@ -46,14 +47,17 @@ export default function AdminMembers() {
 
   const load = useCallback(async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       const resp = await fetch(`${getApiBase()}/admin/users?role=member`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(data.error || 'Could not load members');
       setUsers(Array.isArray(data.users) ? data.users : []);
     } catch {
       setUsers([]);
+      setLoadError('We could not load the member directory. Check your connection and try again.');
     } finally {
       setLoading(false);
     }
@@ -136,6 +140,20 @@ export default function AdminMembers() {
       >
         {loading ? (
           <ActivityIndicator color={colors.primary} style={{ marginTop: 40 }} />
+        ) : loadError ? (
+          <View style={[styles.empty, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <MaterialCommunityIcons name="cloud-alert-outline" size={36} color="#FF5050" />
+            <Text style={[styles.emptyTitle, { color: colors.foreground }]}>Members unavailable</Text>
+            <Text style={[styles.emptyText, { color: colors.mutedForeground }]}>{loadError}</Text>
+            <Pressable
+              accessibilityRole="button"
+              onPress={load}
+              style={({ pressed }) => [styles.retryBtn, { backgroundColor: colors.primary, opacity: pressed ? 0.8 : 1 }]}
+            >
+              <Feather name="refresh-cw" size={15} color={colors.primaryForeground} />
+              <Text style={[styles.retryText, { color: colors.primaryForeground }]}>Retry</Text>
+            </Pressable>
+          </View>
         ) : filtered.length === 0 ? (
           <View style={[styles.empty, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <MaterialCommunityIcons name="account-search" size={36} color={colors.mutedForeground} />
@@ -328,7 +346,13 @@ const styles = StyleSheet.create({
   searchInput: { flex: 1, fontSize: 14, fontFamily: 'Inter_400Regular' },
   content: { paddingHorizontal: 16, gap: 8 },
   empty: { borderRadius: 14, borderWidth: 1, padding: 32, alignItems: 'center', gap: 8 },
-  emptyText: { fontSize: 14, fontFamily: 'Inter_400Regular' },
+  emptyTitle: { fontSize: 16, fontFamily: 'Inter_700Bold', textAlign: 'center' },
+  emptyText: { fontSize: 14, lineHeight: 20, fontFamily: 'Inter_400Regular', textAlign: 'center' },
+  retryBtn: {
+    minHeight: 44, paddingHorizontal: 18, borderRadius: 11,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, marginTop: 4,
+  },
+  retryText: { fontSize: 14, fontFamily: 'Inter_700Bold' },
   userCard: {
     flexDirection: 'row',
     alignItems: 'center',

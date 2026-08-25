@@ -5,6 +5,7 @@ import { BlurView } from 'expo-blur';
 import { Tabs } from 'expo-router';
 import { SymbolView } from 'expo-symbols';
 import { useColors } from '@/hooks/useColors';
+import { RoleGate } from '@/components/RoleGate';
 
 export default function CoachTabLayout() {
   const colors = useColors();
@@ -14,6 +15,7 @@ export default function CoachTabLayout() {
   const isWeb = Platform.OS === 'web';
 
   return (
+    <RoleGate allow={['coach']}>
     <Tabs
       screenOptions={{
         headerShown: false,
@@ -85,5 +87,6 @@ export default function CoachTabLayout() {
         }}
       />
     </Tabs>
+    </RoleGate>
   );
 }

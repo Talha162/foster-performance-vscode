@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { Platform, ScrollView, StyleSheet, Text, View, ActivityIndicator } from 'react-native';
+import { Platform, Pressable, ScrollView, StyleSheet, Text, View, ActivityIndicator } from 'react-native';
+import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useColors } from '@/hooks/useColors';
@@ -60,7 +61,13 @@ export default function CoachClients() {
           </View>
         ) : (
           clients.map((c, i) => (
-            <View key={i} style={[styles.clientCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <Pressable
+              key={c.athlete_email ?? i}
+              onPress={() => router.push(`/coach-client/${encodeURIComponent(String(c.athlete_email ?? i))}` as any)}
+              accessibilityRole="button"
+              accessibilityLabel={`Open ${c.athlete_name ?? 'client'} record`}
+              style={({ pressed }) => [styles.clientCard, { backgroundColor: colors.card, borderColor: colors.border, opacity: pressed ? 0.78 : 1 }]}
+            >
               <View style={[styles.avatar, { backgroundColor: colors.primary + '22' }]}>
                 <Text style={[styles.avatarText, { color: colors.primary }]}>
                   {(c.athlete_name ?? 'C').charAt(0).toUpperCase()}
@@ -73,7 +80,8 @@ export default function CoachClients() {
               <View style={[styles.sessionBadge, { backgroundColor: colors.success + '22' }]}>
                 <Text style={[styles.sessionBadgeText, { color: colors.success }]}>Active</Text>
               </View>
-            </View>
+              <MaterialCommunityIcons name="chevron-right" size={20} color={colors.mutedForeground} />
+            </Pressable>
           ))
         )}
       </ScrollView>

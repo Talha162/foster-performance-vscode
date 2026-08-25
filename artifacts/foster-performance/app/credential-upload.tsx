@@ -24,6 +24,8 @@ interface CredEntry {
   type: 'certification' | 'resume' | 'transcript' | 'photo';
   addedAt: string;
   placeholder: boolean;
+  status?: 'uploaded' | 'processing' | 'verified' | 'rejected' | 'expired';
+  feedback?: string;
 }
 
 const CRED_TYPES = [
@@ -66,6 +68,7 @@ export default function CredentialUploadScreen() {
       type,
       addedAt: new Date().toISOString(),
       placeholder: true,
+      status: 'uploaded',
     };
     await save([...credentials, entry]);
     setName('');
@@ -96,6 +99,17 @@ export default function CredentialUploadScreen() {
 
   const getIcon = (t: CredEntry['type']) =>
     CRED_TYPES.find((ct) => ct.value === t)?.icon ?? 'file-document';
+
+  const cycleStatus = async (credential: CredEntry) => {
+    const states: NonNullable<CredEntry['status']>[] = ['uploaded', 'processing', 'verified', 'rejected', 'expired'];
+    const current = credential.status ?? 'uploaded';
+    const next = states[(states.indexOf(current) + 1) % states.length];
+    await save(credentials.map((item) => item.id === credential.id ? {
+      ...item,
+      status: next,
+      feedback: next === 'rejected' ? 'Preview feedback: issuer or expiry evidence needs clarification.' : next === 'expired' ? 'Preview feedback: replace this credential with a current document.' : undefined,
+    } : item));
+  };
 
   return (
     <View style={styles.root}>
@@ -213,6 +227,15 @@ export default function CredentialUploadScreen() {
                   {CRED_TYPES.find((ct) => ct.value === cred.type)?.label ?? cred.type}
                   {cred.placeholder && ' · Metadata only'}
                 </Text>
+                <Pressable
+                  onPress={() => cycleStatus(cred)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Credential status ${cred.status ?? 'uploaded'}. Tap to preview next state.`}
+                  style={[styles.statusPill, { backgroundColor: (cred.status === 'verified' ? colors.success : cred.status === 'rejected' || cred.status === 'expired' ? '#FF5050' : colors.accent) + '20' }]}
+                >
+                  <Text style={[styles.statusText, { color: cred.status === 'verified' ? colors.success : cred.status === 'rejected' || cred.status === 'expired' ? '#FF5050' : colors.accent }]}>{cred.status ?? 'uploaded'} · preview next</Text>
+                </Pressable>
+                {!!cred.feedback && <Text style={[styles.feedback, { color: '#FF8088' }]}>{cred.feedback}</Text>}
               </View>
               <View style={styles.credActions}>
                 <Pressable
@@ -292,6 +315,9 @@ const styles = StyleSheet.create({
   removeBtn: { padding: 4 },
   tipsCard: { borderRadius: 14, borderWidth: 1, padding: 16, gap: 8 },
   tipsTitle: { fontSize: 15, fontFamily: 'Inter_700Bold' },
+  statusPill: { alignSelf: 'flex-start', paddingHorizontal: 7, paddingVertical: 3, borderRadius: 8, marginTop: 6 },
+  statusText: { fontSize: 9, fontFamily: 'Inter_700Bold', textTransform: 'capitalize' },
+  feedback: { fontSize: 10, fontFamily: 'Inter_400Regular', lineHeight: 14, marginTop: 4 },
   tipRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
   tipText: { flex: 1, fontSize: 13, fontFamily: 'Inter_400Regular', lineHeight: 18 },
 });

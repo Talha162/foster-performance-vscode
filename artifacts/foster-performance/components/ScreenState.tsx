@@ -3,6 +3,7 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-nati
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useColors } from '@/hooks/useColors';
 import { BackgroundLayer } from '@/components/BackgroundLayer';
+import { AppButton } from '@/components/AppButton';
 
 type ScreenStateProps = {
   icon?: string;
@@ -48,15 +49,7 @@ export function ScreenState({
         <Text style={[styles.title, { color: colors.foreground }]}>{title}</Text>
         <Text style={[styles.message, { color: colors.mutedForeground }]}>{message}</Text>
         {actionLabel && onAction && (
-          <Pressable
-            onPress={onAction}
-            style={({ pressed }) => [
-              styles.action,
-              { backgroundColor: colors.primary, opacity: pressed ? 0.8 : 1 },
-            ]}
-          >
-            <Text style={[styles.actionText, { color: colors.primaryForeground }]}>{actionLabel}</Text>
-          </Pressable>
+          <AppButton label={actionLabel} onPress={onAction} compact style={styles.action} />
         )}
       </View>
     </View>
@@ -70,6 +63,5 @@ const styles = StyleSheet.create({
   iconWrap: { width: 68, height: 68, borderRadius: 20, alignItems: 'center', justifyContent: 'center', marginBottom: 4 },
   title: { fontSize: 19, fontFamily: 'Inter_700Bold', textAlign: 'center' },
   message: { fontSize: 14, fontFamily: 'Inter_400Regular', lineHeight: 20, textAlign: 'center', maxWidth: 320 },
-  action: { minHeight: 46, paddingHorizontal: 22, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginTop: 8 },
-  actionText: { fontSize: 14, fontFamily: 'Inter_700Bold' },
+  action: { marginTop: 8 },
 });

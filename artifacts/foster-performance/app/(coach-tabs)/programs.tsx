@@ -14,6 +14,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import { router } from 'expo-router';
 import { useColors } from '@/hooks/useColors';
 import { BackgroundLayer } from '@/components/BackgroundLayer';
 import { useAuth } from '@/context/AuthContext';
@@ -289,7 +290,10 @@ export default function CoachPrograms() {
             </>
           )
         ) : (
-          <View
+          <Pressable
+            onPress={() => router.push('/coach-program-builder' as any)}
+            accessibilityRole="button"
+            accessibilityLabel="Open advanced program builder"
             style={[styles.comingSoon, { backgroundColor: colors.card, borderColor: colors.border }]}
           >
             <MaterialCommunityIcons
@@ -299,9 +303,13 @@ export default function CoachPrograms() {
             />
             <Text style={[styles.comingSoonTitle, { color: colors.foreground }]}>Content Uploads</Text>
             <Text style={[styles.comingSoonDesc, { color: colors.mutedForeground }]}>
-              Upload workout videos, PDFs, and nutrition guides. Coming soon.
+              Build structured programs with exercises, prescriptions, media references, pricing, preview, and publish controls.
             </Text>
-          </View>
+            <View style={[styles.emptyBtn, { backgroundColor: colors.primary }]}> 
+              <Feather name="edit-3" size={16} color="#FFF" />
+              <Text style={styles.emptyBtnText}>Open Program Builder</Text>
+            </View>
+          </Pressable>
         )}
       </ScrollView>
 

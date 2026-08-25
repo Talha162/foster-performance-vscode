@@ -3,12 +3,12 @@
  * Members see conversations they've started with coaches.
  * Coaches see conversations members have opened with them.
  */
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  FlatList,
   Platform,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -22,6 +22,7 @@ import { BackgroundLayer } from '@/components/BackgroundLayer';
 import { useAuth } from '@/context/AuthContext';
 import { useMessaging } from '@/context/MessagingContext';
 import type { Conversation } from '@/context/MessagingContext';
+import { SearchField } from '@/components/ProductUI';
 
 export default function MessagesScreen() {
   const colors = useColors();
@@ -29,6 +30,7 @@ export default function MessagesScreen() {
   const { user } = useAuth();
   const { conversations, refreshConversations } = useMessaging();
   const [refreshing, setRefreshing] = useState(false);
+  const [query, setQuery] = useState('');
 
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
   const botPad = Platform.OS === 'web' ? 34 : insets.bottom;
@@ -42,9 +44,16 @@ export default function MessagesScreen() {
     refreshConversations().finally(() => setRefreshing(false));
   }, []);
 
-  const sorted = [...conversations].sort(
-    (a, b) => new Date(b.lastTimestamp).getTime() - new Date(a.lastTimestamp).getTime()
+  const sorted = useMemo(
+    () => [...conversations].sort(
+      (a, b) => new Date(b.lastTimestamp).getTime() - new Date(a.lastTimestamp).getTime()
+    ),
+    [conversations]
   );
+  const visible = useMemo(() => sorted.filter((conversation) => {
+    const otherName = isCoach ? conversation.memberName : conversation.coachName;
+    return `${otherName} ${conversation.lastMessage}`.toLowerCase().includes(query.trim().toLowerCase());
+  }), [sorted, query, isCoach]);
 
   const handleOpen = (conv: Conversation) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -70,7 +79,13 @@ export default function MessagesScreen() {
 
       {/* Header */}
       <View style={[styles.header, { paddingTop: topPad + 12, borderBottomColor: colors.border }]}>
-        <Pressable onPress={() => router.back()} style={styles.backBtn}>
+        <Pressable
+          onPress={() => router.back()}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+          hitSlop={10}
+          style={styles.backBtn}
+        >
           <Feather name="arrow-left" size={22} color={colors.foreground} />
         </Pressable>
         <View style={{ flex: 1 }}>
@@ -84,6 +99,8 @@ export default function MessagesScreen() {
           </Text>
         </View>
       </View>
+
+      <View style={styles.searchWrap}><SearchField value={query} onChangeText={setQuery} placeholder="Search conversations…" /></View>
 
       {showLoading ? (
         <ActivityIndicator color={colors.primary} style={{ marginTop: 40 }} />
@@ -109,20 +126,27 @@ export default function MessagesScreen() {
             )}
           </View>
         </View>
+      ) : visible.length === 0 ? (
+        <View style={styles.emptyWrap}><View style={[styles.emptyCard, { backgroundColor: colors.card, borderColor: colors.border }]}><Feather name="search" size={38} color={colors.mutedForeground} /><Text style={[styles.emptyTitle, { color: colors.foreground }]}>No matching conversations</Text><Text style={[styles.emptyDesc, { color: colors.mutedForeground }]}>Try a coach or member name, or clear the search.</Text><Pressable onPress={() => setQuery('')} style={[styles.ctaBtn, { backgroundColor: colors.primary }]}><Text style={[styles.ctaBtnText, { color: colors.primaryForeground }]}>Clear search</Text></Pressable></View></View>
       ) : (
-        <ScrollView
+        <FlatList
+          data={visible}
+          keyExtractor={(conversation) => conversation.id}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={[styles.list, { paddingBottom: botPad + 20 }]}
-        >
-          {sorted.map((conv) => {
+          initialNumToRender={10}
+          windowSize={7}
+          removeClippedSubviews={Platform.OS === 'android'}
+          renderItem={({ item: conv }) => {
             const unread = isCoach ? conv.unreadForCoach : conv.unreadForMember;
             const otherName = isCoach ? conv.memberName : conv.coachName;
             const initial = (otherName ?? '?').charAt(0).toUpperCase();
 
             return (
               <Pressable
-                key={conv.id}
                 onPress={() => handleOpen(conv)}
+                accessibilityRole="button"
+                accessibilityLabel={`Open conversation with ${otherName}${unread ? `, ${unread} unread` : ''}`}
                 style={({ pressed }) => [
                   styles.convRow,
                   {
@@ -178,8 +202,8 @@ export default function MessagesScreen() {
                 <Feather name="chevron-right" size={16} color={colors.mutedForeground} />
               </Pressable>
             );
-          })}
-        </ScrollView>
+          }}
+        />
       )}
     </View>
   );
@@ -216,6 +240,7 @@ const styles = StyleSheet.create({
   ctaBtn: { paddingHorizontal: 20, paddingVertical: 12, borderRadius: 12, marginTop: 4 },
   ctaBtnText: { fontSize: 15, fontFamily: 'Inter_700Bold' },
   list: { padding: 16, gap: 8 },
+  searchWrap: { paddingHorizontal: 16, paddingTop: 12 },
   convRow: {
     flexDirection: 'row',
     alignItems: 'center',

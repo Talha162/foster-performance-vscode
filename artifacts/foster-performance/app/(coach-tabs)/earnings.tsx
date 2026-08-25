@@ -98,6 +98,15 @@ export default function CoachEarnings() {
               <Feather name="chevron-right" size={16} color={colors.mutedForeground} />
             </Pressable>
 
+            <Pressable
+              onPress={() => router.push('/payout-lifecycle' as any)}
+              style={({ pressed }) => [styles.payoutCard, { backgroundColor: colors.card, borderColor: colors.border, opacity: pressed ? 0.8 : 1 }]}
+            >
+              <MaterialCommunityIcons name="bank-outline" size={24} color={colors.primary} />
+              <View style={{ flex: 1 }}><Text style={[styles.payoutTitle, { color: colors.foreground }]}>Payout Lifecycle Preview</Text><Text style={[styles.payoutDesc, { color: colors.mutedForeground }]}>Provider onboarding, requirements, pending, paid, refunded, and disputed settlement states.</Text></View>
+              <Feather name="chevron-right" size={16} color={colors.mutedForeground} />
+            </Pressable>
+
             {/* Recent transactions */}
             <Text style={[styles.sectionTitle, { color: colors.foreground }]}>Recent Transactions</Text>
             {bookings.length === 0 ? (
