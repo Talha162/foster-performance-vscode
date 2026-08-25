@@ -1,0 +1,23 @@
+kind = "mobile"
+previewPath = "/"
+title = "Foster Performance"
+version = "1.0.0"
+id = "artifacts/foster-performance"
+router = "expo-domain"
+
+[[services]]
+name = "expo"
+ensurePreviewReachable = "/status"
+paths = [ "/" ]
+localPort = 19206
+
+[services.development]
+run = "pnpm --filter @workspace/foster-performance run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/foster-performance", "run", "build" ]
+run = [ "pnpm", "--filter", "@workspace/foster-performance", "run", "serve" ]
+
+[services.env]
+PORT = "19206"
+BASE_PATH = "/"
