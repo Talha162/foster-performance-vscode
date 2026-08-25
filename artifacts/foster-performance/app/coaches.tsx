@@ -183,18 +183,18 @@ function CoachListCard({ coach, onPress }: { coach: Coach; onPress: () => void }
               <Text style={[styles.priceLabel, { color: colors.mutedForeground }]}>60 min</Text>
               <Text style={[styles.priceValue, { color: colors.primary }]}>${coach.session60Price}</Text>
             </View>
-            <View style={styles.availChips}>
-              {coach.availability.slice(0, 3).map((day) => (
-                <View key={day} style={[styles.dayChip, { backgroundColor: colors.muted }]}>
-                  <Text style={[styles.dayChipText, { color: colors.mutedForeground }]}>{day}</Text>
-                </View>
-              ))}
-              {coach.availability.length > 3 && (
-                <Text style={[styles.moreAvail, { color: colors.mutedForeground }]}>
-                  +{coach.availability.length - 3}
-                </Text>
-              )}
-            </View>
+          </View>
+          <View style={styles.availChips}>
+            {coach.availability.slice(0, 3).map((day) => (
+              <View key={day} style={[styles.dayChip, { backgroundColor: colors.muted }]}>
+                <Text style={[styles.dayChipText, { color: colors.mutedForeground }]}>{day}</Text>
+              </View>
+            ))}
+            {coach.availability.length > 3 && (
+              <Text style={[styles.moreAvail, { color: colors.mutedForeground }]}>
+                +{coach.availability.length - 3}
+              </Text>
+            )}
           </View>
         </View>
 
@@ -300,7 +300,7 @@ const styles = StyleSheet.create({
   },
   priceLabel: { fontSize: 10, fontFamily: 'Inter_400Regular' },
   priceValue: { fontSize: 12, fontFamily: 'Inter_700Bold' },
-  availChips: { flex: 1, flexDirection: 'row', gap: 3, justifyContent: 'flex-end' },
+  availChips: { flexDirection: 'row', gap: 4, alignItems: 'center' },
   dayChip: { paddingHorizontal: 5, paddingVertical: 2, borderRadius: 5 },
   dayChipText: { fontSize: 9, fontFamily: 'Inter_600SemiBold' },
   moreAvail: { fontSize: 10, fontFamily: 'Inter_400Regular', alignSelf: 'center' },

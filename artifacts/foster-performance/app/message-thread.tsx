@@ -36,6 +36,9 @@ export default function MessageThreadScreen() {
   const [sending, setSending] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [blocked, setBlocked] = useState(false);
+  const [replyTo, setReplyTo] = useState<Message | null>(null);
+  const [queued, setQueued] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
 
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
@@ -88,10 +91,17 @@ export default function MessageThreadScreen() {
     } catch {
       // Draft is preserved in the input so the user can retry
       Alert.alert('Send Failed', 'Your message could not be sent. Please try again.');
+      setQueued(true);
     } finally {
       setSending(false);
     }
   };
+
+  const conversationMenu = () => Alert.alert('Conversation options', otherName || 'Conversation', [
+    { text: blocked ? 'Unblock user' : 'Block user', style: blocked ? 'default' : 'destructive', onPress: () => { setBlocked(!blocked); Alert.alert(blocked ? 'User unblocked' : 'User blocked', blocked ? 'You can send and receive messages again.' : 'New messages are disabled in this frontend preview.'); } },
+    { text: 'Report conversation', onPress: () => Alert.alert('Report submitted', 'The report reason, evidence, and confirmation UX is represented. Backend moderation intake remains pending.') },
+    { text: 'Cancel', style: 'cancel' },
+  ]);
 
   function formatTime(iso: string): string {
     const d = new Date(iso);
@@ -143,6 +153,7 @@ export default function MessageThreadScreen() {
             {isCoach ? 'Member' : 'Coach'}
           </Text>
         </View>
+        <Pressable onPress={conversationMenu} accessibilityRole="button" accessibilityLabel="Conversation options" style={styles.menuBtn}><Feather name="more-vertical" size={21} color={colors.foreground} /></Pressable>
       </View>
 
       <KeyboardAvoidingView
@@ -206,7 +217,16 @@ export default function MessageThreadScreen() {
                       </View>
                     )}
                     <View style={{ maxWidth: '72%' }}>
-                      <View
+                      <Pressable
+                        onLongPress={() => Alert.alert('Message options', msg.text, [
+                          { text: 'Reply', onPress: () => setReplyTo(msg) },
+                          { text: 'Copy', onPress: () => Alert.alert('Copied preview', 'Clipboard integration will be attached to this action in Milestone 2.') },
+                          { text: 'Message info', onPress: () => Alert.alert('Message info', isMine ? 'Sent · Delivered · Read state preview' : 'Received message') },
+                          ...(isMine ? [{ text: 'Delete preview', style: 'destructive' as const, onPress: () => Alert.alert('Delete message', 'Deletion confirmation is ready; server mutation is pending.') }] : [{ text: 'Report message', style: 'destructive' as const, onPress: () => Alert.alert('Message reported', 'No production moderation record was created.') }]),
+                          { text: 'Cancel', style: 'cancel' },
+                        ])}
+                        accessibilityRole="text"
+                        accessibilityHint="Long press for message actions"
                         style={[
                           styles.bubble,
                           isMine
@@ -222,14 +242,14 @@ export default function MessageThreadScreen() {
                         >
                           {msg.text}
                         </Text>
-                      </View>
+                      </Pressable>
                       <Text
                         style={[
                           styles.bubbleTime,
                           { color: colors.mutedForeground, textAlign: isMine ? 'right' : 'left' },
                         ]}
                       >
-                        {formatTime(msg.timestamp)}
+                        {formatTime(msg.timestamp)}{isMine ? idx === messages.length - 1 ? ' · Read' : ' · Delivered' : ''}
                       </Text>
                     </View>
                   </View>
@@ -240,6 +260,9 @@ export default function MessageThreadScreen() {
         )}
 
         {/* Input bar */}
+        {replyTo && <View style={[styles.replyPreview, { backgroundColor: colors.card, borderColor: colors.border }]}><View style={{ flex: 1 }}><Text style={[styles.replyLabel, { color: colors.primary }]}>Replying to {replyTo.senderName}</Text><Text numberOfLines={1} style={[styles.replyText, { color: colors.mutedForeground }]}>{replyTo.text}</Text></View><Pressable onPress={() => setReplyTo(null)} accessibilityRole="button" accessibilityLabel="Cancel reply" style={styles.menuBtn}><Feather name="x" size={19} color={colors.mutedForeground} /></Pressable></View>}
+        {queued && <Pressable onPress={() => { setQueued(false); handleSend(); }} style={[styles.queueBanner, { backgroundColor: colors.destructive + '18', borderColor: colors.destructive }]}><Feather name="wifi-off" size={16} color={colors.destructive} /><Text style={[styles.queueText, { color: colors.foreground }]}>Message not sent · Tap to retry</Text></Pressable>}
+        {blocked && <View style={[styles.queueBanner, { backgroundColor: colors.muted, borderColor: colors.border }]}><Feather name="slash" size={16} color={colors.mutedForeground} /><Text style={[styles.queueText, { color: colors.mutedForeground }]}>You blocked this conversation. Unblock from the menu to continue.</Text></View>}
         <View
           style={[
             styles.inputBar,
@@ -250,7 +273,8 @@ export default function MessageThreadScreen() {
             },
           ]}
         >
-          <View style={[styles.inputWrap, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <Pressable onPress={() => Alert.alert('Attachment preview', 'Secure image and document attachments can connect here in Milestone 2.')} disabled={blocked} accessibilityRole="button" accessibilityLabel="Add attachment" style={styles.attachmentBtn}><Feather name="plus" size={22} color={blocked ? colors.border : colors.mutedForeground} /></Pressable>
+          <View style={[styles.inputWrap, { backgroundColor: colors.card, borderColor: colors.border, opacity: blocked ? .5 : 1 }]}>
             <TextInput
               style={[styles.input, { color: colors.foreground }]}
               placeholder="Type a message…"
@@ -260,11 +284,12 @@ export default function MessageThreadScreen() {
               multiline
               maxLength={1000}
               returnKeyType="default"
+              editable={!blocked}
             />
           </View>
           <Pressable
             onPress={handleSend}
-            disabled={!text.trim() || sending}
+            disabled={!text.trim() || sending || blocked}
             style={({ pressed }) => [
               styles.sendBtn,
               {
@@ -297,6 +322,7 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   backBtn: { padding: 4 },
+  menuBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   headerAvatar: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center' },
   headerAvatarText: { fontSize: 15, fontFamily: 'Inter_700Bold' },
   headerName: { fontSize: 16, fontFamily: 'Inter_700Bold' },
@@ -323,4 +349,6 @@ const styles = StyleSheet.create({
   sendBtn: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', borderWidth: 1 },
   retryBtn: { paddingHorizontal: 20, paddingVertical: 10, borderRadius: 10, marginTop: 12 },
   retryBtnText: { fontSize: 14, fontFamily: 'Inter_600SemiBold' },
+  replyPreview: { minHeight: 58, marginHorizontal: 16, marginTop: 8, paddingLeft: 12, borderWidth: 1, borderLeftWidth: 3, borderRadius: 10, flexDirection: 'row', alignItems: 'center' }, replyLabel: { fontSize: 11, fontFamily: 'Inter_700Bold' }, replyText: { fontSize: 12, fontFamily: 'Inter_400Regular', marginTop: 2 },
+  queueBanner: { minHeight: 42, marginHorizontal: 16, marginTop: 8, borderWidth: 1, borderRadius: 10, paddingHorizontal: 11, flexDirection: 'row', alignItems: 'center', gap: 8 }, queueText: { flex: 1, fontSize: 11, fontFamily: 'Inter_600SemiBold' }, attachmentBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
 });

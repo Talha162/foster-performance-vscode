@@ -96,6 +96,24 @@ export default function CoachProfile() {
 
         {/* Coach application */}
         <Pressable
+          onPress={() => router.push('/coach-profile-editor' as any)}
+          style={({ pressed }) => [styles.menuItem, { backgroundColor: colors.card, borderColor: colors.border, opacity: pressed ? 0.7 : 1 }]}
+        >
+          <MaterialCommunityIcons name="account-edit-outline" size={20} color={colors.accent} />
+          <Text style={[styles.menuLabel, { color: colors.foreground }]}>Edit Public Coach Profile</Text>
+          <Feather name="chevron-right" size={16} color={colors.mutedForeground} />
+        </Pressable>
+
+        <Pressable
+          onPress={() => router.push('/credential-upload')}
+          style={({ pressed }) => [styles.menuItem, { backgroundColor: colors.card, borderColor: colors.border, opacity: pressed ? 0.7 : 1 }]}
+        >
+          <MaterialCommunityIcons name="certificate-outline" size={20} color={colors.primary} />
+          <Text style={[styles.menuLabel, { color: colors.foreground }]}>Credential Management</Text>
+          <Feather name="chevron-right" size={16} color={colors.mutedForeground} />
+        </Pressable>
+
+        <Pressable
           onPress={() => router.push('/coach-application-status')}
           style={({ pressed }) => [styles.menuItem, { backgroundColor: colors.card, borderColor: colors.border, opacity: pressed ? 0.7 : 1 }]}
         >

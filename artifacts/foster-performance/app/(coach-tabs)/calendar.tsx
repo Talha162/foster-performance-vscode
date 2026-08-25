@@ -16,6 +16,7 @@ import * as Haptics from 'expo-haptics';
 import { useColors } from '@/hooks/useColors';
 import { BackgroundLayer } from '@/components/BackgroundLayer';
 import { useAuth } from '@/context/AuthContext';
+import { MockNotice } from '@/components/ProductUI';
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 const TIME_BLOCKS = [
@@ -46,6 +47,13 @@ export default function CoachCalendar() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<Date | null>(null);
+  const [leadTime, setLeadTime] = useState(24);
+  const [bufferTime, setBufferTime] = useState(15);
+  const [cancellationWindow, setCancellationWindow] = useState(12);
+  const [exceptions, setExceptions] = useState([
+    { date: 'Aug 29, 2026', note: 'Blocked · Personal time', tone: 'blocked' },
+    { date: 'Sep 2, 2026', note: 'Extended · 8:00 AM–6:00 PM', tone: 'open' },
+  ]);
 
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
   const botPad = Platform.OS === 'web' ? 84 : insets.bottom + 84;
@@ -136,6 +144,15 @@ export default function CoachCalendar() {
         contentContainerStyle={[styles.content, { paddingBottom: botPad }]}
         showsVerticalScrollIndicator={false}
       >
+        <MockNotice>Weekly rules may save to the prototype API. Exceptions, policies, conflict detection, and calendar sync remain frontend previews.</MockNotice>
+        <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <Text style={[styles.cardTitle, { color: colors.foreground }]}>Timezone</Text>
+          <View style={styles.settingRow}>
+            <MaterialCommunityIcons name="earth" size={20} color={colors.primary} />
+            <View style={{ flex: 1 }}><Text style={[styles.dayLabel, { color: colors.foreground }]}>Asia/Karachi</Text><Text style={[styles.cardSub, { color: colors.mutedForeground }]}>Clients see equivalent times in their local timezone.</Text></View>
+            <Text style={[styles.zone, { color: colors.primary }]}>UTC+5</Text>
+          </View>
+        </View>
         {/* Session Duration */}
         <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <Text style={[styles.cardTitle, { color: colors.foreground }]}>Default Session Length</Text>
@@ -242,6 +259,27 @@ export default function CoachCalendar() {
             </Text>
           </View>
         )}
+
+        <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <View style={styles.sectionHead}><View style={{ flex: 1 }}><Text style={[styles.cardTitle, { color: colors.foreground }]}>Date Exceptions</Text><Text style={[styles.cardSub, { color: colors.mutedForeground }]}>Block a date or override weekly hours.</Text></View><Pressable onPress={() => setExceptions((items) => [...items, { date: 'Sep 8, 2026', note: 'Blocked · New exception', tone: 'blocked' }])} accessibilityRole="button" accessibilityLabel="Add date exception" style={[styles.addBtn, { borderColor: colors.primary }]}><MaterialCommunityIcons name="plus" size={18} color={colors.primary} /><Text style={[styles.addText, { color: colors.primary }]}>Add</Text></Pressable></View>
+          {exceptions.map((item, index) => <View key={`${item.date}-${index}`} style={[styles.exception, { borderColor: colors.border }]}><View style={[styles.dayDot, { backgroundColor: item.tone === 'open' ? colors.success : colors.destructive }]} /><View style={{ flex: 1 }}><Text style={[styles.dayLabel, { color: colors.foreground }]}>{item.date}</Text><Text style={[styles.cardSub, { color: colors.mutedForeground }]}>{item.note}</Text></View><Pressable onPress={() => setExceptions((items) => items.filter((_, i) => i !== index))} accessibilityRole="button" accessibilityLabel={`Remove exception ${item.date}`} style={styles.iconButton}><MaterialCommunityIcons name="close" size={19} color={colors.mutedForeground} /></Pressable></View>)}
+        </View>
+
+        <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <Text style={[styles.cardTitle, { color: colors.foreground }]}>Booking Policies</Text>
+          {[
+            { label: 'Minimum lead time', value: leadTime, set: setLeadTime, options: [2, 12, 24, 48], suffix: 'hr' },
+            { label: 'Session buffer', value: bufferTime, set: setBufferTime, options: [0, 10, 15, 30], suffix: 'min' },
+            { label: 'Cancellation window', value: cancellationWindow, set: setCancellationWindow, options: [6, 12, 24, 48], suffix: 'hr' },
+          ].map((policy) => <View key={policy.label} style={styles.policy}><Text style={[styles.dayLabel, { color: colors.foreground }]}>{policy.label}</Text><ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.policyOptions}>{policy.options.map((option) => <Pressable key={option} onPress={() => policy.set(option)} style={[styles.policyChip, { backgroundColor: policy.value === option ? colors.primary : colors.background, borderColor: policy.value === option ? colors.primary : colors.border }]}><Text style={[styles.timeText, { color: policy.value === option ? '#FFF' : colors.foreground }]}>{option}{policy.suffix}</Text></Pressable>)}</ScrollView></View>)}
+        </View>
+
+        <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <Text style={[styles.cardTitle, { color: colors.foreground }]}>Calendar Sync</Text>
+          <View style={styles.settingRow}><MaterialCommunityIcons name="calendar-sync" size={24} color={colors.primary} /><View style={{ flex: 1 }}><Text style={[styles.dayLabel, { color: colors.foreground }]}>External calendar not connected</Text><Text style={[styles.cardSub, { color: colors.mutedForeground }]}>Connection and conflict imports will be enabled in Milestone 2.</Text></View></View>
+          <Pressable onPress={() => Alert.alert('Calendar provider preview', 'Google, Apple, and Outlook connection will launch through a secure provider flow in Milestone 2.')} style={[styles.syncBtn, { borderColor: colors.border }]}><Text style={[styles.addText, { color: colors.foreground }]}>Preview connection flow</Text></Pressable>
+          <View style={[styles.conflict, { backgroundColor: colors.destructive + '12', borderColor: colors.destructive + '55' }]}><MaterialCommunityIcons name="calendar-alert" size={19} color={colors.destructive} /><Text style={[styles.cardSub, { color: colors.foreground, flex: 1 }]}>Conflict example: Sep 4 at 2:00 PM overlaps an imported event. This slot would be unavailable.</Text></View>
+        </View>
       </ScrollView>
     </View>
   );
@@ -276,4 +314,9 @@ const styles = StyleSheet.create({
   timeText: { fontSize: 12, fontFamily: 'Inter_600SemiBold' },
   emptyCard: { borderRadius: 14, borderWidth: 1, padding: 28, alignItems: 'center', gap: 10 },
   emptyText: { fontSize: 13, fontFamily: 'Inter_400Regular', textAlign: 'center', lineHeight: 19 },
+  settingRow: { flexDirection: 'row', alignItems: 'center', gap: 10 }, zone: { fontSize: 12, fontFamily: 'Inter_700Bold' },
+  sectionHead: { flexDirection: 'row', alignItems: 'center', gap: 10 }, addBtn: { minHeight: 40, borderRadius: 10, borderWidth: 1, paddingHorizontal: 11, flexDirection: 'row', alignItems: 'center', gap: 4 }, addText: { fontSize: 12, fontFamily: 'Inter_700Bold' },
+  exception: { minHeight: 58, borderTopWidth: 1, flexDirection: 'row', alignItems: 'center', gap: 10 }, iconButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
+  policy: { gap: 7, paddingTop: 4 }, policyOptions: { gap: 7 }, policyChip: { minHeight: 38, minWidth: 58, borderWidth: 1, borderRadius: 10, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 9 },
+  syncBtn: { minHeight: 44, borderWidth: 1, borderRadius: 10, alignItems: 'center', justifyContent: 'center' }, conflict: { flexDirection: 'row', gap: 9, padding: 11, borderWidth: 1, borderRadius: 10, alignItems: 'flex-start' },
 });

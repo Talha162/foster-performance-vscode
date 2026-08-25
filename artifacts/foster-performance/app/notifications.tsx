@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Platform, Pressable, StyleSheet, Switch, Text, View } from 'react-native';
+import { Alert, Linking, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
@@ -13,18 +13,27 @@ type Preferences = {
   workoutReminders: boolean;
   coachMessages: boolean;
   weeklyProgress: boolean;
+  nutritionReminders: boolean;
+  sessionReminders: boolean;
+  achievements: boolean;
+  platformNews: boolean;
 };
 
 const DEFAULT_PREFERENCES: Preferences = {
   workoutReminders: true,
   coachMessages: true,
   weeklyProgress: true,
+  nutritionReminders: true,
+  sessionReminders: true,
+  achievements: true,
+  platformNews: false,
 };
 
 export default function NotificationsScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const [preferences, setPreferences] = useState<Preferences>(DEFAULT_PREFERENCES);
+  const [permission, setPermission] = useState<'not-requested' | 'enabled' | 'denied'>('not-requested');
 
   useEffect(() => {
     AsyncStorage.getItem(NOTIFICATIONS_KEY).then((saved) => {
@@ -54,10 +63,16 @@ export default function NotificationsScreen() {
         </Pressable>
         <Text style={[styles.headerTitle, { color: colors.foreground }]}>Notifications</Text>
       </View>
-      <View style={styles.content}>
+      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: (Platform.OS === 'web' ? 32 : insets.bottom + 24) }]}>
         <Text style={[styles.intro, { color: colors.mutedForeground }]}>
           Choose the updates that help you stay consistent. These preferences are saved on this device.
         </Text>
+        <View style={[styles.permission, { backgroundColor: colors.card, borderColor: permission === 'denied' ? colors.destructive : colors.border }]}>
+          <View style={[styles.permissionIcon, { backgroundColor: (permission === 'enabled' ? colors.success : permission === 'denied' ? colors.destructive : colors.primary) + '18' }]}><Feather name={permission === 'enabled' ? 'check' : permission === 'denied' ? 'bell-off' : 'bell'} size={20} color={permission === 'enabled' ? colors.success : permission === 'denied' ? colors.destructive : colors.primary} /></View>
+          <View style={{ flex: 1 }}><Text style={[styles.permissionTitle, { color: colors.foreground }]}>System permission: {permission === 'enabled' ? 'Enabled' : permission === 'denied' ? 'Denied' : 'Not requested'}</Text><Text style={[styles.rowDescription, { color: colors.mutedForeground }]}>{permission === 'enabled' ? 'Device delivery can be connected in Milestone 2.' : permission === 'denied' ? 'Open device settings to allow notifications.' : 'Preview the permission request before production push is connected.'}</Text></View>
+          <Pressable onPress={() => permission === 'denied' ? Linking.openSettings().catch(() => Alert.alert('Device settings unavailable')) : setPermission('enabled')} style={[styles.permissionBtn, { borderColor: colors.primary }]}><Text style={[styles.permissionBtnText, { color: colors.primary }]}>{permission === 'denied' ? 'Settings' : permission === 'enabled' ? 'On' : 'Allow'}</Text></Pressable>
+        </View>
+        <Pressable onPress={() => setPermission(permission === 'denied' ? 'not-requested' : 'denied')} style={styles.previewLink}><Text style={[styles.previewText, { color: colors.mutedForeground }]}>{permission === 'denied' ? 'Reset permission preview' : 'Preview permission denied'}</Text></Pressable>
         <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <PreferenceRow
             icon="clock"
@@ -65,6 +80,14 @@ export default function NotificationsScreen() {
             description="A gentle reminder when it is time to train."
             value={preferences.workoutReminders}
             onToggle={() => toggle('workoutReminders')}
+            colors={colors}
+          />
+          <PreferenceRow
+            icon="coffee"
+            title="Nutrition reminders"
+            description="Meal planning and food logging reminders."
+            value={preferences.nutritionReminders}
+            onToggle={() => toggle('nutritionReminders')}
             colors={colors}
           />
           <PreferenceRow
@@ -76,11 +99,35 @@ export default function NotificationsScreen() {
             colors={colors}
           />
           <PreferenceRow
+            icon="calendar"
+            title="Session reminders"
+            description="Upcoming coaching appointment and join-window updates."
+            value={preferences.sessionReminders}
+            onToggle={() => toggle('sessionReminders')}
+            colors={colors}
+          />
+          <PreferenceRow
             icon="bar-chart-2"
             title="Weekly progress"
             description="A weekly summary of your training activity."
             value={preferences.weeklyProgress}
             onToggle={() => toggle('weeklyProgress')}
+            colors={colors}
+          />
+          <PreferenceRow
+            icon="award"
+            title="Achievements and streaks"
+            description="Meaningful milestones and consistency updates."
+            value={preferences.achievements}
+            onToggle={() => toggle('achievements')}
+            colors={colors}
+          />
+          <PreferenceRow
+            icon="radio"
+            title="Platform news"
+            description="Optional product news and service announcements."
+            value={preferences.platformNews}
+            onToggle={() => toggle('platformNews')}
             colors={colors}
           />
         </View>
@@ -90,7 +137,7 @@ export default function NotificationsScreen() {
             Push delivery will be enabled when device notifications are connected. Your choices are ready now.
           </Text>
         </View>
-      </View>
+      </ScrollView>
     </View>
   );
 }
@@ -139,4 +186,5 @@ const styles = StyleSheet.create({
   rowDescription: { fontSize: 12, fontFamily: 'Inter_400Regular', lineHeight: 16 },
   note: { flexDirection: 'row', alignItems: 'flex-start', gap: 9, padding: 14, borderRadius: 12 },
   noteText: { flex: 1, fontSize: 12, fontFamily: 'Inter_400Regular', lineHeight: 17 },
+  permission: { borderRadius: 16, borderWidth: 1, padding: 13, flexDirection: 'row', alignItems: 'center', gap: 10 }, permissionIcon: { width: 42, height: 42, borderRadius: 12, alignItems: 'center', justifyContent: 'center' }, permissionTitle: { fontSize: 13, fontFamily: 'Inter_700Bold', marginBottom: 3 }, permissionBtn: { minHeight: 40, minWidth: 58, borderWidth: 1, borderRadius: 10, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 9 }, permissionBtnText: { fontSize: 11, fontFamily: 'Inter_700Bold' }, previewLink: { minHeight: 38, marginTop: -12, alignItems: 'flex-end', justifyContent: 'center' }, previewText: { fontSize: 11, fontFamily: 'Inter_600SemiBold' },
 });

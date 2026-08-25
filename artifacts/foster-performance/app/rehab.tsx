@@ -43,6 +43,7 @@ export default function RehabScreen() {
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={[styles.content, { paddingBottom: Platform.OS === 'web' ? 50 : 40 }]}>
+        <Pressable onPress={() => router.push('/rehab-intake' as any)} accessibilityRole="button" accessibilityLabel="Start rehabilitation safety intake" style={[styles.intakeButton, { backgroundColor: colors.primary }]}><MaterialCommunityIcons name="clipboard-pulse-outline" size={20} color="#FFF" /><View style={{ flex: 1 }}><Text style={styles.intakeTitle}>Start safety intake</Text><Text style={styles.intakeSub}>Area, acknowledgement, warning, and protocol preview</Text></View><Feather name="chevron-right" size={20} color="#FFF" /></Pressable>
         {rehabPrograms.map((program) => {
           const accent = PART_COLORS[program.bodyPart] ?? colors.primary;
           return (
@@ -135,4 +136,5 @@ const styles = StyleSheet.create({
   exName: { flex: 1, fontSize: 12, fontFamily: 'Inter_500Medium' },
   exSets: { fontSize: 11, fontFamily: 'Inter_400Regular' },
   moreText: { fontSize: 11, fontFamily: 'Inter_400Regular', marginTop: 2 },
+  intakeButton: { minHeight: 68, borderRadius: 14, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 11, marginBottom: 12 }, intakeTitle: { color: '#FFF', fontSize: 14, fontFamily: 'Inter_700Bold' }, intakeSub: { color: '#DDE9FF', fontSize: 11, fontFamily: 'Inter_400Regular', marginTop: 2 },
 });

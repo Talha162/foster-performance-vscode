@@ -1,0 +1,18 @@
+import React, { useState } from 'react';
+import { Platform, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useColors } from '@/hooks/useColors';
+import { BackgroundLayer } from '@/components/BackgroundLayer';
+import { MockNotice, PageHeader, SectionCard, StatusPill } from '@/components/ProductUI';
+import { radii, spacing, typography } from '@/constants/colors';
+
+function Choice({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) { const colors = useColors(); return <Pressable onPress={onPress} style={[styles.choice, { borderColor: active ? colors.primary : colors.border, backgroundColor: active ? colors.primary + '18' : colors.muted }]} accessibilityRole="radio" accessibilityState={{ checked: active }}><Text style={{ color: active ? colors.primary : colors.foreground }}>{label}</Text></Pressable>; }
+
+export default function AppSettings() {
+  const colors = useColors(); const insets = useSafeAreaInsets();
+  const [units, setUnits] = useState('US'); const [locale, setLocale] = useState('English');
+  const [timezone, setTimezone] = useState(Intl.DateTimeFormat().resolvedOptions().timeZone || 'Automatic');
+  const [largeTargets, setLargeTargets] = useState(false); const [reduce, setReduce] = useState(false);
+  return <View style={[styles.root, { backgroundColor: colors.background, paddingTop: Platform.OS === 'web' ? 40 : insets.top }]}><BackgroundLayer /><PageHeader title="App Preferences" subtitle="Units, locale, timezone and accessibility" /><ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 24 }]}><SectionCard title="Units"><View style={styles.choices}>{['US', 'Metric'].map(x => <Choice key={x} label={x} active={units === x} onPress={() => setUnits(x)} />)}</View></SectionCard><SectionCard title="Language & region"><View style={styles.choices}>{['English', 'Español preview'].map(x => <Choice key={x} label={x} active={locale === x} onPress={() => setLocale(x)} />)}</View><StatusPill label="English active" tone="info" /></SectionCard><SectionCard title="Timezone" subtitle="Booking and reminder times use this timezone."><View style={styles.choices}>{[Intl.DateTimeFormat().resolvedOptions().timeZone || 'Automatic', 'America/New_York', 'Europe/London'].map(x => <Choice key={x} label={x} active={timezone === x} onPress={() => setTimezone(x)} />)}</View></SectionCard><SectionCard title="Accessibility"><View style={styles.toggle}><Text style={[styles.toggleLabel, { color: colors.foreground }]}>Larger touch targets</Text><Switch value={largeTargets} onValueChange={setLargeTargets} /></View><View style={styles.toggle}><Text style={[styles.toggleLabel, { color: colors.foreground }]}>Reduce interface motion</Text><Switch value={reduce} onValueChange={setReduce} /></View><Text style={[styles.hint, { color: colors.mutedForeground }]}>System font size and screen-reader settings are respected by default. Additional app preferences are previewed here.</Text></SectionCard><MockNotice>Cross-device persistence, full localization and global reduced-motion propagation are pending Milestone 2.</MockNotice></ScrollView></View>;
+}
+const styles = StyleSheet.create({ root: { flex: 1 }, content: { padding: spacing.md, gap: spacing.md }, choices: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs }, choice: { minHeight: 44, borderWidth: 1, borderRadius: radii.md, paddingHorizontal: spacing.md, alignItems: 'center', justifyContent: 'center' }, toggle: { minHeight: 52, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }, toggleLabel: { ...typography.label, flex: 1 }, hint: { ...typography.bodySmall } });

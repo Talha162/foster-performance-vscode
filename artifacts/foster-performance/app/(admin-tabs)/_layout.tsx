@@ -4,9 +4,11 @@
  * All routes are protected: the backend enforces owner_admin via JWT.
  */
 import { Stack } from 'expo-router';
+import { RoleGate } from '@/components/RoleGate';
 
 export default function AdminLayout() {
   return (
+    <RoleGate allow={['owner_admin']}>
     <Stack screenOptions={{ headerShown: false, animation: 'slide_from_right' }}>
       <Stack.Screen name="index" />
       <Stack.Screen name="applications" />
@@ -15,6 +17,11 @@ export default function AdminLayout() {
       <Stack.Screen name="bookings" />
       <Stack.Screen name="payments" />
       <Stack.Screen name="settings" />
+      <Stack.Screen name="audit-log" />
+      <Stack.Screen name="support" />
+      <Stack.Screen name="engagement" />
+      <Stack.Screen name="moderation" />
     </Stack>
+    </RoleGate>
   );
 }

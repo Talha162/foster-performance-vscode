@@ -339,10 +339,18 @@ const styles = StyleSheet.create({
   tabBtnText: { fontSize: 12, fontFamily: 'Inter_600SemiBold' },
 
   // Filter chips
-  chipsScroll: { borderBottomWidth: 1 },
+  chipsScroll: { borderBottomWidth: 1, flexGrow: 0, height: 52 },
   chipsRow: { paddingHorizontal: 16, paddingVertical: 10, gap: 6 },
-  chip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, borderWidth: 1 },
-  chipText: { fontSize: 12, fontFamily: 'Inter_500Medium' },
+  chip: {
+    minHeight: 32,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  chipText: { fontSize: 12, lineHeight: 16, fontFamily: 'Inter_500Medium' },
 
   // Content
   content: { padding: 12 },

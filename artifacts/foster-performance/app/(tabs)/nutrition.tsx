@@ -10,6 +10,7 @@ import * as Haptics from 'expo-haptics';
 import { useColors } from '@/hooks/useColors';
 import { BackgroundLayer } from '@/components/BackgroundLayer';
 import { useNutrition, Recipe } from '@/context/NutritionContext';
+import { useAuth } from '@/context/AuthContext';
 
 const TABS = ['Today', 'Recipes', 'Grocery'] as const;
 type Tab = typeof TABS[number];
@@ -43,6 +44,7 @@ const MOTIVATIONAL = [
 export default function NutritionScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
+  const { token } = useAuth();
   const {
     dashboard, recipes, savedRecipeIds, groceryItems,
     dashboardLoading, recipesLoading,
@@ -174,6 +176,33 @@ export default function NutritionScreen() {
             {dashboardLoading && !dashboard && (
               <View style={styles.centerLoad}>
                 <ActivityIndicator color={colors.primary} size="large" />
+              </View>
+            )}
+
+            {!dashboardLoading && !dashboard && (
+              <View style={[styles.unavailableCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                <View style={[styles.unavailableIcon, { backgroundColor: colors.primary + '18' }]}>
+                  <MaterialCommunityIcons name="food-apple-outline" size={30} color={colors.primary} />
+                </View>
+                <Text style={[styles.unavailableTitle, { color: colors.foreground }]}>Nutrition data unavailable</Text>
+                <Text style={[styles.unavailableText, { color: colors.mutedForeground }]}>
+                  {token
+                    ? 'We could not load your nutrition dashboard. Check your connection and try again.'
+                    : 'Sign in to load your personalized targets, meal log, and hydration progress.'}
+                </Text>
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => token ? loadDashboard() : router.replace('/(auth)/login')}
+                  style={({ pressed }) => [
+                    styles.unavailableButton,
+                    { backgroundColor: colors.primary, opacity: pressed ? 0.8 : 1 },
+                  ]}
+                >
+                  <MaterialCommunityIcons name={token ? 'refresh' : 'login'} size={18} color={colors.primaryForeground} />
+                  <Text style={[styles.unavailableButtonText, { color: colors.primaryForeground }]}>
+                    {token ? 'Try Again' : 'Sign In'}
+                  </Text>
+                </Pressable>
               </View>
             )}
 
@@ -588,6 +617,15 @@ const styles = StyleSheet.create({
   subTabText: { fontSize: 14, fontFamily: 'Inter_600SemiBold' },
   content: { padding: 16, gap: 16 },
   centerLoad: { paddingVertical: 40, alignItems: 'center' },
+  unavailableCard: { alignItems: 'center', padding: 28, borderRadius: 16, borderWidth: 1, gap: 10, marginTop: 8 },
+  unavailableIcon: { width: 58, height: 58, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
+  unavailableTitle: { fontSize: 17, fontFamily: 'Inter_700Bold', textAlign: 'center' },
+  unavailableText: { maxWidth: 320, fontSize: 13, lineHeight: 19, fontFamily: 'Inter_400Regular', textAlign: 'center' },
+  unavailableButton: {
+    minHeight: 46, paddingHorizontal: 20, borderRadius: 12,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 4,
+  },
+  unavailableButtonText: { fontSize: 14, fontFamily: 'Inter_700Bold' },
 
   // Onboarding prompt
   onboardingPrompt: { flex: 1, alignItems: 'center', paddingHorizontal: 32, gap: 16, justifyContent: 'center' },

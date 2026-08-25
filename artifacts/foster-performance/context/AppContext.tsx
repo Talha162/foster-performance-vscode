@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 /** Derive the API base URL from the Expo public domain env var (same logic as book-session). */
@@ -941,6 +941,16 @@ const ACTIVE_WORKOUT_KEY = '@foster_active_workout';
 const ACTIVE_NUTRITION_KEY = '@foster_active_nutrition';
 const BOOKINGS_KEY = '@foster_bookings';
 
+function parseStoredArray<T>(value: string | null): T[] | null {
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
 // ─── Provider ─────────────────────────────────────────────────────────────────
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
@@ -958,7 +968,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       AsyncStorage.getItem(ACTIVE_NUTRITION_KEY),
       AsyncStorage.getItem(BOOKINGS_KEY),
     ]).then(([prog, logs, aw, an, bkgs]) => {
-      if (prog) setProgressEntries(JSON.parse(prog));
+      const storedProgress = parseStoredArray<ProgressEntry>(prog);
+      const storedLogs = parseStoredArray<WorkoutLog>(logs);
+      const storedBookings = parseStoredArray<Booking>(bkgs);
+      if (storedProgress) setProgressEntries(storedProgress);
       else {
         const demo: ProgressEntry[] = [
           { id: '1', date: '2026-07-27', weight: 215, workoutsThisWeek: 4, notes: 'Feeling explosive' },
@@ -969,47 +982,50 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         ];
         setProgressEntries(demo);
       }
-      if (logs) setWorkoutLogs(JSON.parse(logs));
+      if (storedLogs) setWorkoutLogs(storedLogs);
       if (aw) setActiveWorkoutId(aw);
       if (an) setActiveNutritionId(an);
-      if (bkgs) setBookings(JSON.parse(bkgs));
+      if (storedBookings) setBookings(storedBookings);
+    }).catch(() => {
+      // Storage can be unavailable in private browsing or after an interrupted
+      // migration. Defaults remain usable and the UI must still render.
     });
   }, []);
 
-  const setActiveWorkout = async (id: string | null) => {
+  const setActiveWorkout = useCallback(async (id: string | null) => {
     setActiveWorkoutId(id);
     if (id) await AsyncStorage.setItem(ACTIVE_WORKOUT_KEY, id);
     else await AsyncStorage.removeItem(ACTIVE_WORKOUT_KEY);
-  };
+  }, []);
 
-  const setActiveNutrition = async (id: string | null) => {
+  const setActiveNutrition = useCallback(async (id: string | null) => {
     setActiveNutritionId(id);
     if (id) await AsyncStorage.setItem(ACTIVE_NUTRITION_KEY, id);
     else await AsyncStorage.removeItem(ACTIVE_NUTRITION_KEY);
-  };
+  }, []);
 
-  const addProgressEntry = async (entry: Omit<ProgressEntry, 'id'>) => {
+  const addProgressEntry = useCallback(async (entry: Omit<ProgressEntry, 'id'>) => {
     const newEntry: ProgressEntry = { ...entry, id: Date.now().toString() };
     const updated = [newEntry, ...progressEntries];
     setProgressEntries(updated);
     await AsyncStorage.setItem(PROGRESS_KEY, JSON.stringify(updated));
-  };
+  }, [progressEntries]);
 
-  const logWorkout = async (programId: string) => {
+  const logWorkout = useCallback(async (programId: string) => {
     const log: WorkoutLog = { programId, completedAt: new Date().toISOString() };
     const updated = [log, ...workoutLogs];
     setWorkoutLogs(updated);
     await AsyncStorage.setItem(LOGS_KEY, JSON.stringify(updated));
-  };
+  }, [workoutLogs]);
 
-  const addBooking = async (booking: Omit<Booking, 'id' | 'createdAt'>) => {
+  const addBooking = useCallback(async (booking: Omit<Booking, 'id' | 'createdAt'>) => {
     const newBooking: Booking = { ...booking, id: Date.now().toString(), createdAt: new Date().toISOString() };
     const updated = [newBooking, ...bookings];
     setBookings(updated);
     await AsyncStorage.setItem(BOOKINGS_KEY, JSON.stringify(updated));
-  };
+  }, [bookings]);
 
-  const cancelBooking = async (
+  const cancelBooking = useCallback(async (
     bookingId: string,
     cancellationToken: string
   ): Promise<{ refunded: boolean; partial: boolean }> => {
@@ -1046,29 +1062,33 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setBookings(updated);
     await AsyncStorage.setItem(BOOKINGS_KEY, JSON.stringify(updated));
     return { refunded, partial };
-  };
+  }, [bookings]);
+
+  const contextValue = useMemo<AppContextType>(() => ({
+    workoutPrograms: WORKOUT_PROGRAMS,
+    nutritionPlans: NUTRITION_PLANS,
+    rehabPrograms: REHAB_PROGRAMS,
+    coaches: COACHES,
+    progressEntries,
+    workoutLogs,
+    bookings,
+    activeWorkoutId,
+    activeNutritionId,
+    setActiveWorkout,
+    setActiveNutrition,
+    addProgressEntry,
+    logWorkout,
+    addBooking,
+    cancelBooking,
+    apiBase: API_BASE,
+  }), [
+    activeNutritionId, activeWorkoutId, addBooking, addProgressEntry, bookings,
+    cancelBooking, logWorkout, progressEntries, setActiveNutrition,
+    setActiveWorkout, workoutLogs,
+  ]);
 
   return (
-    <AppContext.Provider
-      value={{
-        workoutPrograms: WORKOUT_PROGRAMS,
-        nutritionPlans: NUTRITION_PLANS,
-        rehabPrograms: REHAB_PROGRAMS,
-        coaches: COACHES,
-        progressEntries,
-        workoutLogs,
-        bookings,
-        activeWorkoutId,
-        activeNutritionId,
-        setActiveWorkout,
-        setActiveNutrition,
-        addProgressEntry,
-        logWorkout,
-        addBooking,
-        cancelBooking,
-        apiBase: API_BASE,
-      }}
-    >
+    <AppContext.Provider value={contextValue}>
       {children}
     </AppContext.Provider>
   );

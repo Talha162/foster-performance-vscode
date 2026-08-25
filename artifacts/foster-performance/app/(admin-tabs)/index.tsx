@@ -15,6 +15,10 @@ const NAV_ITEMS = [
   { label: 'Bookings', icon: 'calendar-check-outline', route: '/(admin-tabs)/bookings', desc: 'View all platform bookings', color: '#A78BFA' },
   { label: 'Payments', icon: 'credit-card-outline', route: '/(admin-tabs)/payments', desc: 'Revenue, commissions & payouts', color: '#F59E0B' },
   { label: 'Settings', icon: 'cog-outline', route: '/(admin-tabs)/settings', desc: 'Platform fees & configuration', color: '#9AA3B5' },
+  { label: 'Audit Log', icon: 'shield-search-outline', route: '/(admin-tabs)/audit-log', desc: 'Review privileged and security activity', color: '#60A5FA' },
+  { label: 'Support', icon: 'lifebuoy', route: '/(admin-tabs)/support', desc: 'Triage cases and prepare responses', color: '#F472B6' },
+  { label: 'Engagement', icon: 'chart-timeline-variant', route: '/(admin-tabs)/engagement', desc: 'Retention signals and broadcasts', color: '#22D3EE' },
+  { label: 'Moderation', icon: 'shield-alert-outline', route: '/(admin-tabs)/moderation', desc: 'Review reports and enforcement', color: '#FB7185' },
 ] as const;
 
 export default function AdminDashboard() {

@@ -276,6 +276,14 @@ export default function ProfileScreen() {
                       </View>
                     </View>
                     <Pressable
+                      onPress={() => router.push(`/booking/${booking.id}` as any)}
+                      style={({ pressed }) => [styles.cancelBtn, { borderColor: colors.primary, opacity: pressed ? 0.7 : 1 }]}
+                      accessibilityRole="button"
+                      accessibilityLabel={`View booking with ${booking.coachName}`}
+                    >
+                      <Text style={[styles.cancelBtnText, { color: colors.primary }]}>View Details &amp; Reschedule</Text>
+                    </Pressable>
+                    <Pressable
                       onPress={() =>
                         handleCancelBooking(booking.id, booking.coachName, booking.date, booking.time)
                       }
@@ -349,6 +357,11 @@ export default function ProfileScreen() {
               onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push('/messages'); }}
             />
             <MenuItem
+              icon={<MaterialCommunityIcons name="bell-badge-outline" size={18} color={colors.primary} />}
+              label="Notification Center"
+              onPress={() => router.push('/notification-center')}
+            />
+            <MenuItem
               icon={<MaterialCommunityIcons name="account-edit" size={18} color={colors.foreground} />}
               label="Edit Profile"
               onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push('/profile-edit'); }}
@@ -368,8 +381,28 @@ export default function ProfileScreen() {
             )}
             <MenuItem
               icon={<Feather name="bell" size={18} color={colors.foreground} />}
-              label="Notifications"
+              label="Notification Preferences"
               onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.push('/notifications'); }}
+            />
+            <MenuItem
+              icon={<Feather name="sliders" size={18} color={colors.foreground} />}
+              label="App Preferences"
+              onPress={() => router.push('/app-settings')}
+            />
+            <MenuItem
+              icon={<MaterialCommunityIcons name="shield-account-outline" size={18} color={colors.foreground} />}
+              label="Privacy & Data Controls"
+              onPress={() => router.push('/privacy-controls')}
+            />
+            <MenuItem
+              icon={<MaterialCommunityIcons name="credit-card-multiple-outline" size={18} color={colors.foreground} />}
+              label="Payment Methods"
+              onPress={() => router.push('/payment-methods')}
+            />
+            <MenuItem
+              icon={<MaterialCommunityIcons name="receipt-text-outline" size={18} color={colors.foreground} />}
+              label="Billing History"
+              onPress={() => router.push('/billing-history')}
             />
             <MenuItem
               icon={<Feather name="shield" size={18} color={colors.foreground} />}

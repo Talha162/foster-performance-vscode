@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import {
-  Platform, Pressable, ScrollView, StyleSheet, Text, View,
+  Alert, Platform, Pressable, ScrollView, StyleSheet, Text, View,
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -9,7 +9,7 @@ import * as Haptics from 'expo-haptics';
 import { useColors } from '@/hooks/useColors';
 import { BackgroundLayer } from '@/components/BackgroundLayer';
 import { ScreenState } from '@/components/ScreenState';
-import { TargetMuscleAvatar } from '@/components/TargetMuscleAvatar';
+import { TargetMuscleAvatar, TargetMuscleMap } from '@/components/TargetMuscleAvatar';
 import { useApp, TrainingModule } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 
@@ -155,36 +155,38 @@ function ExerciseRow({
 }) {
   return (
     <View style={[styles.exRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
-      <View style={[styles.exNum, { backgroundColor: accent + '20' }]}>
-        <Text style={[styles.exNumText, { color: accent }]}>{index + 1}</Text>
-      </View>
-      <TargetMuscleAvatar muscleGroup={exercise.muscleGroup} size={42} accent={accent} />
-      <View style={styles.exInfo}>
-        <Text style={[styles.exName, { color: colors.foreground }]}>{exercise.name}</Text>
-        <View style={styles.exMeta}>
-          <Text style={[styles.exMuscle, { color: colors.mutedForeground }]}>{exercise.muscleGroup}</Text>
-          {exercise.weight && (
-            <>
-              <View style={[styles.exDot, { backgroundColor: colors.mutedForeground }]} />
-              <MaterialCommunityIcons name="dumbbell" size={10} color={colors.mutedForeground} />
-              <Text style={[styles.exMuscle, { color: colors.mutedForeground }]}>{exercise.weight}</Text>
-            </>
-          )}
-          {exercise.distance && (
-            <>
-              <View style={[styles.exDot, { backgroundColor: colors.mutedForeground }]} />
-              <MaterialCommunityIcons name="map-marker-distance" size={10} color={colors.mutedForeground} />
-              <Text style={[styles.exMuscle, { color: colors.mutedForeground }]}>{exercise.distance}</Text>
-            </>
+      <View style={styles.exMain}>
+        <View style={[styles.exNum, { backgroundColor: accent + '20' }]}>
+          <Text style={[styles.exNumText, { color: accent }]}>{index + 1}</Text>
+        </View>
+        <TargetMuscleAvatar muscleGroup={exercise.muscleGroup} size={38} accent={accent} showLabel={false} />
+        <View style={styles.exInfo}>
+          <Text style={[styles.exName, { color: colors.foreground }]}>{exercise.name}</Text>
+          <View style={styles.exMeta}>
+            <Text style={[styles.exMuscle, { color: accent }]}>{exercise.muscleGroup}</Text>
+            {exercise.weight && (
+              <>
+                <View style={[styles.exDot, { backgroundColor: colors.mutedForeground }]} />
+                <MaterialCommunityIcons name="dumbbell" size={10} color={colors.mutedForeground} />
+                <Text style={[styles.exMuscle, { color: colors.mutedForeground }]}>{exercise.weight}</Text>
+              </>
+            )}
+            {exercise.distance && (
+              <>
+                <View style={[styles.exDot, { backgroundColor: colors.mutedForeground }]} />
+                <MaterialCommunityIcons name="map-marker-distance" size={10} color={colors.mutedForeground} />
+                <Text style={[styles.exMuscle, { color: colors.mutedForeground }]}>{exercise.distance}</Text>
+              </>
+            )}
+          </View>
+          {exercise.notes && (
+            <Text style={[styles.exNotes, { color: colors.mutedForeground }]} numberOfLines={3}>
+              {exercise.notes}
+            </Text>
           )}
         </View>
-        {exercise.notes && (
-          <Text style={[styles.exNotes, { color: colors.mutedForeground }]} numberOfLines={2}>
-            {exercise.notes}
-          </Text>
-        )}
       </View>
-      <View style={styles.exStats}>
+      <View style={[styles.exStats, { backgroundColor: colors.muted }]}>
         <ExStat label="sets" value={String(exercise.sets)} colors={colors} />
         <View style={[styles.exDiv, { backgroundColor: colors.border }]} />
         <ExStat label="reps" value={exercise.reps} colors={colors} />
@@ -220,7 +222,7 @@ export default function WorkoutDetailScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { workoutPrograms, activeWorkoutId, setActiveWorkout, logWorkout } = useApp();
+  const { workoutPrograms, activeWorkoutId, setActiveWorkout } = useApp();
   const { user } = useAuth();
 
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
@@ -249,8 +251,18 @@ export default function WorkoutDetailScreen() {
   const handleCTA = () => {
     if (isLocked) { router.push('/subscription'); return; }
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-    if (isActive) logWorkout(program.id);
-    else setActiveWorkout(program.id);
+    if (isActive) {
+      router.push(`/workout-session/${program.id}` as any);
+      return;
+    }
+    Alert.alert(
+      'Start this program?',
+      `${program.title} will become your active program. You can pause or leave it later from the program schedule.`,
+      [
+        { text: 'Not Now', style: 'cancel' },
+        { text: 'Start Program', onPress: () => { setActiveWorkout(program.id); router.push(`/workout-session/${program.id}` as any); } },
+      ]
+    );
   };
 
   const hasModules = (program.modules?.length ?? 0) > 0;
@@ -329,6 +341,18 @@ export default function WorkoutDetailScreen() {
             {program.modules!.map((module) => (
               <ModuleCard key={module.id} module={module} accent={accent} colors={colors} />
             ))}
+          </Section>
+        )}
+
+        {program.exercises.length > 0 && (
+          <Section title="Muscles Targeted" icon="human" accent={accent} colors={colors}>
+            <Text style={[styles.sectionSubtitle, { color: colors.mutedForeground }]}>
+              Highlighted areas show the primary training emphasis across this program.
+            </Text>
+            <TargetMuscleMap
+              muscleGroups={program.exercises.map((exercise) => exercise.muscleGroup)}
+              accent={accent}
+            />
           </Section>
         )}
 
@@ -490,7 +514,7 @@ export default function WorkoutDetailScreen() {
             ]}
           >
             <MaterialCommunityIcons name="check-circle" size={20} color="#FFFFFF" />
-            <Text style={[styles.ctaBtnText, { color: '#FFFFFF' }]}>Log Workout Complete</Text>
+            <Text style={[styles.ctaBtnText, { color: '#FFFFFF' }]}>Resume Workout</Text>
           </Pressable>
         ) : (
           <Pressable
@@ -728,14 +752,13 @@ const styles = StyleSheet.create({
 
   // Exercise row
   exRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
     borderRadius: 12,
     borderWidth: 1,
     padding: 12,
     marginBottom: 8,
-    gap: 8,
+    gap: 10,
   },
+  exMain: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   exNum: { width: 34, height: 34, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
   exNumText: { fontSize: 14, fontFamily: 'Inter_700Bold' },
   exInfo: { flex: 1, gap: 2 },
@@ -744,8 +767,11 @@ const styles = StyleSheet.create({
   exMuscle: { fontSize: 11, fontFamily: 'Inter_400Regular' },
   exDot: { width: 2, height: 2, borderRadius: 1 },
   exNotes: { fontSize: 11, fontFamily: 'Inter_400Regular', lineHeight: 15, fontStyle: 'italic', marginTop: 2 },
-  exStats: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  exStat: { alignItems: 'center', minWidth: 30 },
+  exStats: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around',
+    gap: 8, borderRadius: 9, paddingHorizontal: 10, paddingVertical: 7,
+  },
+  exStat: { alignItems: 'center', flex: 1, minWidth: 0 },
   exStatVal: { fontSize: 12, fontFamily: 'Inter_700Bold' },
   exStatLabel: { fontSize: 9, fontFamily: 'Inter_400Regular' },
   exDiv: { width: 1, height: 22 },
