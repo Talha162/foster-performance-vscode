@@ -305,7 +305,7 @@ export default function CoachPrograms() {
             <Text style={[styles.comingSoonDesc, { color: colors.mutedForeground }]}>
               Build structured programs with exercises, prescriptions, media references, pricing, preview, and publish controls.
             </Text>
-            <View style={[styles.emptyBtn, { backgroundColor: colors.primary }]}> 
+            <View style={[styles.emptyBtn, { backgroundColor: colors.primary }]}>
               <Feather name="edit-3" size={16} color="#FFF" />
               <Text style={styles.emptyBtnText}>Open Program Builder</Text>
             </View>
