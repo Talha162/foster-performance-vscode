@@ -6,35 +6,35 @@ import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useColors } from '@/hooks/useColors';
 import { BackgroundLayer } from '@/components/BackgroundLayer';
 import { useAuth } from '@/context/AuthContext';
+import { supabase } from '@/lib/supabase';
+import { fetchBookings } from '@/lib/coachRepository';
 
 export default function CoachDashboard() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { user, token } = useAuth();
+  const { user } = useAuth();
   const [bookings, setBookings] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
   const botPad = Platform.OS === 'web' ? 84 : insets.bottom + 84;
 
-  const getApiBase = () =>
-    process.env.EXPO_PUBLIC_API_BASE ?? `https://${process.env.EXPO_PUBLIC_DOMAIN}/api`;
-
   useEffect(() => {
     (async () => {
       try {
-        const resp = await fetch(`${getApiBase()}/bookings?coachId=${user?.id}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        const data = await resp.json().catch(() => ({}));
-        setBookings(Array.isArray(data.bookings) ? data.bookings.slice(0, 5) : []);
+        if (!user?.id) {
+          setBookings([]);
+          return;
+        }
+        const bookingRows = await fetchBookings({ coachId: user.id });
+        setBookings(bookingRows.slice(0, 5));
       } catch {
         setBookings([]);
       } finally {
         setLoading(false);
       }
     })();
-  }, []);
+  }, [user?.id]);
 
   const upcomingCount = bookings.filter((b) => b.status === 'upcoming').length;
   // Prices are stored as dollars (e.g. 75 = $75), not cents.
