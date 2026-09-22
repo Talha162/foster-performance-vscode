@@ -1,7 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/lib/supabase';
-import { bookingRowToAppBooking, cancelBooking as cancelSupabaseBooking, fetchBookings } from '@/lib/coachRepository';
+import { bookingRowToAppBooking, cancelBooking as cancelSupabaseBooking, createBooking, fetchBookings } from '@/lib/coachRepository';
 
 // ─── Core Types ──────────────────────────────────────────────────────────────
 
@@ -1013,10 +1013,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setWorkoutLogs((current) => [log, ...current]);
   }, [user]);
 
-  const addBooking = useCallback(async (booking: Omit<Booking, 'id' | 'createdAt'>) => {
-    const newBooking: Booking = { ...booking, id: Date.now().toString(), createdAt: new Date().toISOString() };
-    setBookings((current) => [newBooking, ...current.filter((item) => item.serverId !== booking.serverId)]);
-  }, []);
+  const addBooking = useCallback(async (booking: Omit<Booking, 'id' | 'createdAt' | 'serverId'>) => {
+    if (!user) throw new Error('User must be authenticated to create booking');
+    const bookingId = await createBooking({
+      memberId: user.id,
+      coachId: booking.coachId,
+      sessionLength: booking.sessionLength,
+      price: booking.price,
+      startsAt: new Date(`${booking.date}T${booking.time}`).toISOString(),
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    });
+    const newBooking: Booking = { ...booking, id: bookingId, serverId: bookingId, createdAt: new Date().toISOString() };
+    setBookings((current) => [newBooking, ...current]);
+  }, [user]);
 
   const cancelBooking = useCallback(async (
     bookingId: string,
