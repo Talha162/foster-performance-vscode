@@ -7,6 +7,7 @@ import * as Haptics from 'expo-haptics';
 import { useColors } from '@/hooks/useColors';
 import { BackgroundLayer } from '@/components/BackgroundLayer';
 import { useAuth } from '@/context/AuthContext';
+import { supabase } from '@/lib/supabase';
 
 const NAV_ITEMS = [
   { label: 'Applications', icon: 'file-document-edit-outline', route: '/(admin-tabs)/applications', desc: 'Review & approve coach applications', color: '#D6A84B' },
@@ -24,26 +25,35 @@ const NAV_ITEMS = [
 export default function AdminDashboard() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { user, logout, token } = useAuth();
+  const { user, logout } = useAuth();
   const [stats, setStats] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
   const botPad = Platform.OS === 'web' ? 34 : insets.bottom;
 
-  const getApiBase = () =>
-    process.env.EXPO_PUBLIC_API_BASE ?? `https://${process.env.EXPO_PUBLIC_DOMAIN}/api`;
-
   useEffect(() => {
     (async () => {
       try {
-        const resp = await fetch(`${getApiBase()}/admin/stats`, {
-          headers: { Authorization: `Bearer ${token}` },
+        const [members, coaches, applications, bookings] = await Promise.all([
+          supabase.from('profiles').select('id', { count: 'exact', head: true }).eq('role', 'member'),
+          supabase.from('profiles').select('id', { count: 'exact', head: true }).eq('role', 'coach'),
+          supabase.from('coach_applications').select('id', { count: 'exact', head: true }).eq('status', 'submitted'),
+          supabase.from('bookings').select('price_cents', { count: 'exact', head: true }),
+        ]);
+        const revenue = (bookings.data ?? []).reduce((sum, b: any) => sum + (b.price_cents ?? 0), 0) / 100;
+        setStats({
+          totalMembers: members.count ?? 0,
+          totalCoaches: coaches.count ?? 0,
+          pendingApplications: applications.count ?? 0,
+          totalBookings: bookings.count ?? 0,
+          platformRevenue: revenue,
         });
-        const data = await resp.json().catch(() => ({}));
-        if (resp.ok) setStats(data);
-      } catch { /* non-fatal */ }
-      finally { setLoading(false); }
+      } catch {
+        /* non-fatal */
+      } finally {
+        setLoading(false);
+      }
     })();
   }, []);
 
