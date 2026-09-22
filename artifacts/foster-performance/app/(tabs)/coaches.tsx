@@ -15,11 +15,9 @@ import { useColors } from '@/hooks/useColors';
 import { BackgroundLayer } from '@/components/BackgroundLayer';
 import { useApp, Coach } from '@/context/AppContext';
 import { CoachCard } from '@/components/CoachCard';
+import { fetchCoaches } from '@/lib/coachRepository';
 
 // ─── API helpers ──────────────────────────────────────────────────────────────
-
-const getApiBase = () =>
-  process.env.EXPO_PUBLIC_API_BASE ?? `https://${process.env.EXPO_PUBLIC_DOMAIN}/api`;
 
 const COACH_COLORS = ['#2F80FF', '#9C27B0', '#35C98A', '#FF6B35', '#00BCD4', '#E91E8C'];
 
@@ -105,11 +103,7 @@ export default function CoachesTabScreen() {
   const fetchApiCoaches = useCallback(async () => {
     setLoading(true);
     try {
-      const resp = await fetch(`${getApiBase()}/coaches`);
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      const data = await resp.json();
-      const normalized = (data.coaches as any[]).map(normalizeApiCoach);
-      setApiCoaches(normalized);
+      setApiCoaches(await fetchCoaches());
     } catch {
       // silently fall back to local-only coaches
     } finally {

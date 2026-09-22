@@ -10,11 +10,9 @@ import { ScreenState } from '@/components/ScreenState';
 import { useApp, Coach, Review } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import { useMessaging } from '@/context/MessagingContext';
+import { fetchCoach } from '@/lib/coachRepository';
 
 // ─── Helpers for normalizing API coaches ─────────────────────────────────────
-
-const getApiBase = () =>
-  process.env.EXPO_PUBLIC_API_BASE ?? `https://${process.env.EXPO_PUBLIC_DOMAIN}/api`;
 
 const COACH_COLORS = ['#2F80FF', '#9C27B0', '#35C98A', '#FF6B35', '#00BCD4', '#E91E8C'];
 
@@ -84,23 +82,18 @@ export default function CoachDetailScreen() {
   const botPad = Platform.OS === 'web' ? 34 : insets.bottom;
 
   const decodedId = id ? decodeURIComponent(id) : '';
-  const isApiCoach = decodedId.startsWith('api_');
-
   // Try to find in AppContext first
   const localCoach = coaches.find((c) => c.id === decodedId);
 
   // Fetch from API if not found locally
   useEffect(() => {
-    if (!isApiCoach || localCoach) return;
+    if (!decodedId || localCoach) return;
     setLoadingApi(true);
-    fetch(`${getApiBase()}/coaches/${encodeURIComponent(decodedId)}`)
-      .then((r) => r.json())
-      .then((data) => {
-        if (data.coach) setApiCoach(normalizeApiCoach(data.coach));
-      })
+    fetchCoach(decodedId)
+      .then(setApiCoach)
       .catch(() => {})
       .finally(() => setLoadingApi(false));
-  }, [decodedId, isApiCoach, localCoach]);
+  }, [decodedId, localCoach]);
 
   const coach = localCoach ?? apiCoach;
 
@@ -317,7 +310,7 @@ export default function CoachDetailScreen() {
           </Pressable>
         </View>
         {/* Message Coach — members only, API-backed coaches only */}
-        {user?.accountType === 'member' && coach.id.startsWith('api_') && (
+        {user?.accountType === 'member' && !localCoach && (
           <Pressable
             onPress={handleMessage}
             style={({ pressed }) => [

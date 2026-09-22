@@ -1,0 +1,42 @@
+project_id = "mqhpfdofvvjkoccaqtqa"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = 54322
+major_version = 17
+
+[studio]
+enabled = true
+port = 54323
+
+[auth]
+enabled = true
+site_url = "fosterperformance://"
+additional_redirect_urls = ["exp://127.0.0.1:8081", "http://localhost:8081"]
+jwt_expiry = 3600
+enable_signup = true
+
+[storage]
+enabled = true
+file_size_limit = "25MiB"
+
+[realtime]
+enabled = true
+
+[functions.billing]
+verify_jwt = true
+
+[functions.billing-webhook]
+verify_jwt = false
+
+[functions.delete-account]
+verify_jwt = true
+
+[functions.export-data]
+verify_jwt = true

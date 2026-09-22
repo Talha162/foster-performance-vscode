@@ -1,24 +1,10 @@
-/**
- * AuthContext — server-backed authentication.
- *
- * Roles:
- *   member          → member onboarding + main tabs
- *   coach_applicant → coach application flow + status screen
- *   coach           → coach dashboard
- *   owner_admin     → admin portal (role assigned via OWNER_ADMIN_EMAIL env var only)
- *
- * JWT is stored in AsyncStorage under @foster_jwt.
- * On startup the token is validated against /auth/me.
- */
+import type { User as SupabaseAuthUser } from '@supabase/supabase-js';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 
-import React, { createContext, useContext, useEffect, useState } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-
-// ─── Types ────────────────────────────────────────────────────────────────────
+import { supabase } from '@/lib/supabase';
 
 export type AccountType = 'member' | 'coach_applicant' | 'coach' | 'owner_admin';
-export type SubscriptionStatus =
-  | 'active' | 'trial' | 'pending' | 'past_due' | 'canceled' | 'expired';
+export type SubscriptionStatus = 'active' | 'trial' | 'pending' | 'past_due' | 'canceled' | 'expired';
 
 export interface User {
   id: string;
@@ -30,14 +16,12 @@ export interface User {
   level?: 'Beginner' | 'Intermediate' | 'Advanced';
   applicationStatus?: string;
   emailVerified?: boolean;
-  // Subscription
   isPremium: boolean;
   subscriptionStatus?: SubscriptionStatus | null;
   subscriptionPlan?: 'monthly' | 'annual';
   subscriptionEndDate?: string;
   stripeCustomerId?: string;
   stripeSubscriptionId?: string;
-  // Stats
   streakDays: number;
   totalWorkouts: number;
   joinDate: string;
@@ -63,7 +47,6 @@ interface AuthContextType {
   updateSubscription: (update: SubscriptionUpdate) => Promise<void>;
   cancelSubscription: () => Promise<void>;
   becomeCoach: () => Promise<void>;
-  // ─── Auth security ────────────────────────────────────────────────────────
   forgotPassword: (email: string) => Promise<string>;
   resetPassword: (email: string, code: string, newPassword: string) => Promise<void>;
   sendVerification: () => Promise<void>;
@@ -73,225 +56,274 @@ interface AuthContextType {
   changeEmail: (currentPassword: string, newEmail: string) => Promise<void>;
 }
 
-// ─── API helpers ─────────────────────────────────────────────────────────────
+type ProfileRow = {
+  id: string;
+  email: string;
+  full_name: string;
+  role: AccountType;
+  onboarding_complete: boolean;
+  goal: string | null;
+  level: User['level'] | null;
+  is_premium: boolean;
+  subscription_status: SubscriptionStatus | null;
+  subscription_plan: User['subscriptionPlan'] | null;
+  subscription_end_date: string | null;
+  stripe_customer_id: string | null;
+  stripe_subscription_id: string | null;
+  streak_days: number;
+  total_workouts: number;
+  created_at: string;
+};
 
-const getApiBase = () =>
-  process.env.EXPO_PUBLIC_API_BASE ??
-  `https://${process.env.EXPO_PUBLIC_DOMAIN}/api`;
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const JWT_KEY = '@foster_jwt';
+async function loadUser(authUser: SupabaseAuthUser): Promise<User> {
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('*')
+    .eq('id', authUser.id)
+    .single();
+  if (error) throw new Error(error.message);
 
-async function apiFetch(
-  path: string,
-  options: RequestInit = {},
-  token?: string | null
-): Promise<any> {
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    ...(options.headers as any),
+  const profile = data as ProfileRow;
+  let applicationStatus: string | undefined;
+  if (profile.role === 'coach_applicant') {
+    const result = await supabase
+      .from('coach_applications')
+      .select('status')
+      .eq('user_id', profile.id)
+      .maybeSingle();
+    if (result.error) throw new Error(result.error.message);
+    applicationStatus = result.data?.status;
+  }
+
+  return {
+    id: profile.id,
+    name: profile.full_name,
+    email: profile.email,
+    accountType: profile.role,
+    onboardingComplete: profile.onboarding_complete,
+    goal: profile.goal ?? undefined,
+    level: profile.level ?? undefined,
+    applicationStatus,
+    emailVerified: Boolean(authUser.email_confirmed_at),
+    isPremium: profile.is_premium,
+    subscriptionStatus: profile.subscription_status,
+    subscriptionPlan: profile.subscription_plan ?? undefined,
+    subscriptionEndDate: profile.subscription_end_date ?? undefined,
+    stripeCustomerId: profile.stripe_customer_id ?? undefined,
+    stripeSubscriptionId: profile.stripe_subscription_id ?? undefined,
+    streakDays: profile.streak_days,
+    totalWorkouts: profile.total_workouts,
+    joinDate: profile.created_at,
   };
-  if (token) headers['Authorization'] = `Bearer ${token}`;
-  const resp = await fetch(`${getApiBase()}${path}`, { ...options, headers });
-  const data = await resp.json().catch(() => ({}));
-  if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
-  return data;
 }
 
-// ─── Context ─────────────────────────────────────────────────────────────────
-
-const AuthContext = createContext<AuthContextType | null>(null);
+const profileColumns: Partial<Record<keyof User, keyof ProfileRow>> = {
+  name: 'full_name',
+  email: 'email',
+  onboardingComplete: 'onboarding_complete',
+  goal: 'goal',
+  level: 'level',
+};
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // On mount: validate stored JWT
-  useEffect(() => {
-    (async () => {
-      try {
-        const storedToken = await AsyncStorage.getItem(JWT_KEY);
-        if (!storedToken) { setIsLoading(false); return; }
-        const data = await apiFetch('/auth/me', {}, storedToken);
-        setToken(storedToken);
-        setUser(data.user);
-      } catch {
-        await AsyncStorage.removeItem(JWT_KEY);
-      } finally {
-        setIsLoading(false);
-      }
-    })();
+  const refreshUser = useCallback(async (authUser?: SupabaseAuthUser | null) => {
+    const activeUser = authUser ?? (await supabase.auth.getUser()).data.user;
+    if (!activeUser) {
+      setUser(null);
+      return;
+    }
+    setUser(await loadUser(activeUser));
   }, []);
 
-  // ─── Auth actions ───────────────────────────────────────────────────────────
-
-  const login = async (email: string, password: string) => {
-    const data = await apiFetch('/auth/login', {
-      method: 'POST',
-      body: JSON.stringify({ email, password }),
+  useEffect(() => {
+    let mounted = true;
+    void supabase.auth.getSession().then(async ({ data, error }) => {
+      try {
+        if (error) throw error;
+        if (!mounted) return;
+        setToken(data.session?.access_token ?? null);
+        if (data.session?.user) await refreshUser(data.session.user);
+      } finally {
+        if (mounted) setIsLoading(false);
+      }
     });
-    await AsyncStorage.setItem(JWT_KEY, data.token);
-    setToken(data.token);
-    setUser(data.user);
-  };
 
-  const register = async (
+    const { data: subscription } = supabase.auth.onAuthStateChange((_event, session) => {
+      setToken(session?.access_token ?? null);
+      if (!session) setUser(null);
+      else void refreshUser(session.user).catch(() => setUser(null));
+    });
+
+    return () => {
+      mounted = false;
+      subscription.subscription.unsubscribe();
+    };
+  }, [refreshUser]);
+
+  const login = useCallback(async (email: string, password: string) => {
+    const { data, error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+    if (error) throw new Error(error.message);
+    setToken(data.session.access_token);
+    setUser(await loadUser(data.user));
+  }, []);
+
+  const register = useCallback(async (
     name: string,
     email: string,
     password: string,
-    accountType: AccountType = 'member'
+    accountType: AccountType = 'member',
   ) => {
-    const safeType =
-      accountType === 'owner_admin' ? 'member' : accountType;
-    const data = await apiFetch('/auth/register', {
-      method: 'POST',
-      body: JSON.stringify({ name, email, password, accountType: safeType }),
+    const { data, error } = await supabase.auth.signUp({
+      email: email.trim(),
+      password,
+      options: { data: { full_name: name.trim(), account_type: accountType } },
     });
-    await AsyncStorage.setItem(JWT_KEY, data.token);
-    setToken(data.token);
-    setUser(data.user);
-  };
+    if (error) throw new Error(error.message);
+    if (!data.user) throw new Error('Supabase did not create the account.');
+    if (data.session) setToken(data.session.access_token);
+    setUser(await loadUser(data.user));
+  }, []);
 
-  const logout = async () => {
-    await AsyncStorage.multiRemove([JWT_KEY, '@foster_subscription']);
+  const logout = useCallback(async () => {
+    const { error } = await supabase.auth.signOut();
+    if (error) throw new Error(error.message);
     setToken(null);
     setUser(null);
-  };
+  }, []);
 
-  const updateUser = async (updates: Partial<User>) => {
-    if (!token) return;
-    setUser((prev) => (prev ? { ...prev, ...updates } : prev));
-    try {
-      const data = await apiFetch('/auth/me', {
-        method: 'PATCH',
-        body: JSON.stringify({
-          name: updates.name,
-          goal: updates.goal,
-          level: updates.level,
-          onboardingComplete: updates.onboardingComplete,
-          isPremium: updates.isPremium,
-          subscriptionStatus: updates.subscriptionStatus,
-          subscriptionPlan: updates.subscriptionPlan,
-          subscriptionEndDate: updates.subscriptionEndDate,
-          stripeCustomerId: updates.stripeCustomerId,
-          stripeSubscriptionId: updates.stripeSubscriptionId,
-          streakDays: updates.streakDays,
-          totalWorkouts: updates.totalWorkouts,
-        }),
-      }, token);
-      setUser(data.user);
-    } catch {
-      // Server update failed — local state already updated
+  const updateUser = useCallback(async (updates: Partial<User>) => {
+    if (!user) throw new Error('You must be signed in.');
+    const payload: Record<string, unknown> = {};
+    for (const [key, column] of Object.entries(profileColumns)) {
+      if (key in updates) payload[column] = updates[key as keyof User];
     }
-  };
+    if (Object.keys(payload).length) {
+      const { error } = await supabase.from('profiles').update(payload).eq('id', user.id);
+      if (error) throw new Error(error.message);
+    }
+    if (updates.email && updates.email !== user.email) {
+      const { error } = await supabase.auth.updateUser({ email: updates.email });
+      if (error) throw new Error(error.message);
+    }
+    await refreshUser();
+  }, [refreshUser, user]);
 
-  const upgradeToPremium = async () => {
-    await updateUser({ isPremium: true, subscriptionStatus: 'active', subscriptionPlan: 'monthly' });
-  };
+  const invokeBilling = useCallback(async (action: string, payload: Record<string, unknown> = {}) => {
+    const { data, error } = await supabase.functions.invoke('billing', { body: { action, ...payload } });
+    if (error) throw new Error(error.message);
+    await refreshUser();
+    return data;
+  }, [refreshUser]);
 
-  const updateSubscription = async (update: SubscriptionUpdate) => {
-    const isPremium = update.subscriptionStatus === 'active' || update.subscriptionStatus === 'trial';
-    await updateUser({ ...update, isPremium });
-  };
+  const upgradeToPremium = useCallback(async () => {
+    await invokeBilling('create-member-checkout', { plan: 'monthly' });
+  }, [invokeBilling]);
 
-  const cancelSubscription = async () => {
-    await updateUser({ isPremium: false, subscriptionStatus: 'canceled' });
-  };
+  const updateSubscription = useCallback(async (update: SubscriptionUpdate) => {
+    await invokeBilling('sync-subscription', { ...update });
+  }, [invokeBilling]);
 
-  const becomeCoach = async () => {
-    if (!token) throw new Error('Not authenticated');
-    const data = await apiFetch('/auth/become-coach', { method: 'POST' }, token);
-    await AsyncStorage.setItem(JWT_KEY, data.token);
-    setToken(data.token);
-    setUser(data.user);
-  };
+  const cancelSubscription = useCallback(async () => {
+    await invokeBilling('cancel-member-subscription');
+  }, [invokeBilling]);
 
-  // ─── Auth security actions ──────────────────────────────────────────────────
+  const becomeCoach = useCallback(async () => {
+    const { error } = await supabase.rpc('start_coach_application');
+    if (error) throw new Error(error.message);
+    await refreshUser();
+  }, [refreshUser]);
 
-  /** Sends password-reset OTP. Returns the neutral server message. */
-  const forgotPassword = async (email: string): Promise<string> => {
-    const data = await apiFetch('/auth/forgot-password', {
-      method: 'POST',
-      body: JSON.stringify({ email }),
+  const forgotPassword = useCallback(async (email: string) => {
+    const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+      redirectTo: 'fosterperformance://reset-password',
     });
-    return data.message ?? 'If an account exists for this email, password-reset instructions have been sent.';
-  };
+    if (error) throw new Error(error.message);
+    return 'Check your email for the password recovery code.';
+  }, []);
 
-  /** Resets password using the OTP code. Navigates user to login after. */
-  const resetPassword = async (email: string, code: string, newPassword: string): Promise<void> => {
-    await apiFetch('/auth/reset-password', {
-      method: 'POST',
-      body: JSON.stringify({ email, code, newPassword }),
+  const resetPassword = useCallback(async (email: string, code: string, newPassword: string) => {
+    const { error: verifyError } = await supabase.auth.verifyOtp({
+      email: email.trim(),
+      token: code.trim(),
+      type: 'recovery',
     });
-    // Invalidate any stored token — sessions invalidated server-side
-    await AsyncStorage.removeItem(JWT_KEY);
+    if (verifyError) throw new Error(verifyError.message);
+    const { error } = await supabase.auth.updateUser({ password: newPassword });
+    if (error) throw new Error(error.message);
+  }, []);
+
+  const sendVerification = useCallback(async () => {
+    if (!user) throw new Error('You must be signed in.');
+    const { error } = await supabase.auth.resend({ type: 'signup', email: user.email });
+    if (error) throw new Error(error.message);
+  }, [user]);
+
+  const verifyEmail = useCallback(async (code: string) => {
+    if (!user) throw new Error('You must be signed in.');
+    const { data, error } = await supabase.auth.verifyOtp({ email: user.email, token: code.trim(), type: 'email' });
+    if (error) throw new Error(error.message);
+    if (data.user) setUser(await loadUser(data.user));
+  }, [user]);
+
+  const signOutAll = useCallback(async () => {
+    const { error } = await supabase.auth.signOut({ scope: 'global' });
+    if (error) throw new Error(error.message);
     setToken(null);
     setUser(null);
-  };
+  }, []);
 
-  /** Sends a verification email to the current user's email address. */
-  const sendVerification = async (): Promise<void> => {
-    if (!token) throw new Error('Not authenticated');
-    await apiFetch('/auth/send-verification', { method: 'POST' }, token);
-  };
+  const changePassword = useCallback(async (currentPassword: string, newPassword: string) => {
+    if (!user) throw new Error('You must be signed in.');
+    const verify = await supabase.auth.signInWithPassword({ email: user.email, password: currentPassword });
+    if (verify.error) throw new Error('Current password is incorrect.');
+    const { error } = await supabase.auth.updateUser({ password: newPassword });
+    if (error) throw new Error(error.message);
+  }, [user]);
 
-  /** Verifies email with the 6-char code sent by email. */
-  const verifyEmail = async (code: string): Promise<void> => {
-    if (!token) throw new Error('Not authenticated');
-    await apiFetch('/auth/verify-email', {
-      method: 'POST',
-      body: JSON.stringify({ code }),
-    }, token);
-    setUser((prev) => prev ? { ...prev, emailVerified: true } : prev);
-  };
+  const changeEmail = useCallback(async (currentPassword: string, newEmail: string) => {
+    if (!user) throw new Error('You must be signed in.');
+    const verify = await supabase.auth.signInWithPassword({ email: user.email, password: currentPassword });
+    if (verify.error) throw new Error('Current password is incorrect.');
+    const { error } = await supabase.auth.updateUser({ email: newEmail.trim() });
+    if (error) throw new Error(error.message);
+  }, [user]);
 
-  /** Signs out all devices. Returns a fresh token for the current session. */
-  const signOutAll = async (): Promise<void> => {
-    if (!token) throw new Error('Not authenticated');
-    const data = await apiFetch('/auth/logout-all', { method: 'POST' }, token);
-    // Store the fresh token issued for this session
-    await AsyncStorage.setItem(JWT_KEY, data.token);
-    setToken(data.token);
-  };
+  const value = useMemo<AuthContextType>(() => ({
+    user,
+    isLoading,
+    token,
+    login,
+    register,
+    logout,
+    updateUser,
+    upgradeToPremium,
+    updateSubscription,
+    cancelSubscription,
+    becomeCoach,
+    forgotPassword,
+    resetPassword,
+    sendVerification,
+    verifyEmail,
+    signOutAll,
+    changePassword,
+    changeEmail,
+  }), [
+    user, isLoading, token, login, register, logout, updateUser, upgradeToPremium,
+    updateSubscription, cancelSubscription, becomeCoach, forgotPassword, resetPassword,
+    sendVerification, verifyEmail, signOutAll, changePassword, changeEmail,
+  ]);
 
-  /** Changes password. Requires current password. Issues a fresh token. */
-  const changePassword = async (currentPassword: string, newPassword: string): Promise<void> => {
-    if (!token) throw new Error('Not authenticated');
-    const data = await apiFetch('/auth/change-password', {
-      method: 'POST',
-      body: JSON.stringify({ currentPassword, newPassword }),
-    }, token);
-    await AsyncStorage.setItem(JWT_KEY, data.token);
-    setToken(data.token);
-  };
-
-  /** Changes email. Requires current password. Sends verification to new email. */
-  const changeEmail = async (currentPassword: string, newEmail: string): Promise<void> => {
-    if (!token) throw new Error('Not authenticated');
-    await apiFetch('/auth/change-email', {
-      method: 'POST',
-      body: JSON.stringify({ currentPassword, newEmail }),
-    }, token);
-    setUser((prev) => prev ? { ...prev, email: newEmail.toLowerCase().trim(), emailVerified: false } : prev);
-  };
-
-  return (
-    <AuthContext.Provider
-      value={{
-        user, isLoading, token,
-        login, register, logout, updateUser,
-        upgradeToPremium, updateSubscription, cancelSubscription, becomeCoach,
-        forgotPassword, resetPassword, sendVerification, verifyEmail,
-        signOutAll, changePassword, changeEmail,
-      }}
-    >
-      {children}
-    </AuthContext.Provider>
-  );
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth() {
-  const ctx = useContext(AuthContext);
-  if (!ctx) throw new Error('useAuth must be used within AuthProvider');
-  return ctx;
+  const context = useContext(AuthContext);
+  if (!context) throw new Error('useAuth must be used within an AuthProvider');
+  return context;
 }
