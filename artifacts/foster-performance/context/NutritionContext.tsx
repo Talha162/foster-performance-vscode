@@ -1,8 +1,7 @@
-import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useAuth } from './AuthContext';
+import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 
-const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? '';
+import { useAuth } from './AuthContext';
+import { supabase } from '@/lib/supabase';
 
 export interface NutritionProfile {
   onboarding_complete: boolean;
@@ -102,7 +101,6 @@ interface NutritionContextValue {
   loading: boolean;
   dashboardLoading: boolean;
   recipesLoading: boolean;
-
   loadDashboard: () => Promise<void>;
   loadRecipes: (filters?: { category?: string; q?: string; dietary?: string }) => Promise<void>;
   saveProfile: (updates: Partial<NutritionProfile>) => Promise<void>;
@@ -121,28 +119,41 @@ interface NutritionContextValue {
 
 const NutritionContext = createContext<NutritionContextValue | null>(null);
 
-export function useNutrition() {
-  const ctx = useContext(NutritionContext);
-  if (!ctx) throw new Error('useNutrition must be used within NutritionProvider');
-  return ctx;
-}
+const defaultProfile: NutritionProfile = {
+  onboarding_complete: false,
+  goal: null,
+  secondary_goals: [],
+  daily_calories: 2000,
+  protein_target: 150,
+  carbs_target: 200,
+  fat_target: 65,
+  fiber_target: 30,
+  water_target_ml: 2500,
+  tracking_mode: 'guided',
+  dietary_pattern: 'omnivore',
+  allergies: [],
+  intolerances: [],
+  activity_level: 'moderately_active',
+  meal_frequency: 'three_plus_snacks',
+};
 
-async function apiFetch(path: string, token: string | null, options?: RequestInit) {
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (token) headers['Authorization'] = `Bearer ${token}`;
-  const res = await fetch(`${API_BASE}/api${path}`, { ...options, headers: { ...headers, ...((options?.headers as any) ?? {}) } });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: 'Request failed' }));
-    throw new Error(err.error || `HTTP ${res.status}`);
-  }
-  return res.json();
+function normalizeRecipe(row: any): Recipe {
+  return {
+    ...row,
+    description: row.description ?? '',
+    protein: Number(row.protein),
+    carbs: Number(row.carbs),
+    fat: Number(row.fat),
+    fiber: Number(row.fiber),
+    sodium: Number(row.sodium),
+    cost_per_serving: Number(row.cost_per_serving),
+    storage: row.storage_notes ?? undefined,
+    reheat: row.reheat_notes ?? undefined,
+  };
 }
-
-const GROCERY_LIST_KEY = '@fp_grocery_list_id';
 
 export function NutritionProvider({ children }: { children: React.ReactNode }) {
-  const { token } = useAuth();
-
+  const { user } = useAuth();
   const [profile, setProfile] = useState<NutritionProfile | null>(null);
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
   const [recipes, setRecipes] = useState<Recipe[]>([]);
@@ -154,181 +165,234 @@ export function NutritionProvider({ children }: { children: React.ReactNode }) {
   const [recipesLoading, setRecipesLoading] = useState(false);
 
   const loadDashboard = useCallback(async () => {
-    if (!token) return;
+    if (!user) return;
     setDashboardLoading(true);
     try {
-      const data = await apiFetch('/nutrition/dashboard', token);
-      setDashboard(data);
-      setProfile(data.profile);
-    } catch (e) {
-      // Non-fatal — keep stale data
+      const start = new Date();
+      start.setHours(0, 0, 0, 0);
+      const end = new Date(start);
+      end.setDate(end.getDate() + 1);
+      const [profileResult, foodResult, waterResult] = await Promise.all([
+        supabase.from('nutrition_profiles').select('*').eq('user_id', user.id).maybeSingle(),
+        supabase.from('food_logs').select('*').eq('user_id', user.id).gte('logged_at', start.toISOString()).lt('logged_at', end.toISOString()).order('logged_at', { ascending: false }),
+        supabase.from('water_logs').select('amount_ml').eq('user_id', user.id).gte('logged_at', start.toISOString()).lt('logged_at', end.toISOString()),
+      ]);
+      if (profileResult.error || foodResult.error || waterResult.error) {
+        throw new Error(profileResult.error?.message ?? foodResult.error?.message ?? waterResult.error?.message);
+      }
+      const activeProfile = (profileResult.data ?? defaultProfile) as NutritionProfile;
+      const logs = (foodResult.data ?? []) as FoodLog[];
+      const sum = (field: keyof Pick<FoodLog, 'calories' | 'protein' | 'carbs' | 'fat' | 'fiber'>) =>
+        logs.reduce((total, log) => total + Number(log[field] ?? 0), 0);
+      const calories = sum('calories');
+      const protein = sum('protein');
+      const carbs = sum('carbs');
+      const fat = sum('fat');
+      const fiber = sum('fiber');
+      const water = (waterResult.data ?? []).reduce((total, row) => total + row.amount_ml, 0);
+      const ratios = [
+        calories / activeProfile.daily_calories,
+        protein / activeProfile.protein_target,
+        carbs / activeProfile.carbs_target,
+        fat / activeProfile.fat_target,
+        fiber / activeProfile.fiber_target,
+        water / activeProfile.water_target_ml,
+      ].map((ratio) => Math.min(1, Math.max(0, ratio)));
+      const nutritionScore = Math.round(ratios.reduce((total, ratio) => total + ratio, 0) / ratios.length * 100);
+      setProfile(activeProfile);
+      setDashboard({
+        profile: activeProfile,
+        today: {
+          date: start.toISOString().slice(0, 10),
+          calories,
+          protein,
+          carbs,
+          fat,
+          fiber,
+          calories_remaining: Math.max(0, activeProfile.daily_calories - calories),
+          water_ml: water,
+        },
+        logs,
+        nutrition_score: nutritionScore,
+      });
     } finally {
       setDashboardLoading(false);
     }
-  }, [token]);
+  }, [user]);
 
   const loadRecipes = useCallback(async (filters: { category?: string; q?: string; dietary?: string } = {}) => {
     setRecipesLoading(true);
     try {
-      const params = new URLSearchParams();
-      if (filters.category && filters.category !== 'All') params.set('category', filters.category);
-      if (filters.q) params.set('q', filters.q);
-      if (filters.dietary) params.set('dietary', filters.dietary);
-      const data = await apiFetch(`/nutrition/recipes?${params}`, token);
-      setRecipes(data.recipes ?? []);
-    } catch {
-      // keep stale
+      let query = supabase.from('recipes').select('*').eq('is_published', true).order('title');
+      if (filters.category && filters.category !== 'All') query = query.eq('category', filters.category);
+      if (filters.q) query = query.ilike('title', `%${filters.q}%`);
+      if (filters.dietary) query = query.contains('dietary_tags', [filters.dietary]);
+      const { data, error } = await query;
+      if (error) throw new Error(error.message);
+      setRecipes((data ?? []).map(normalizeRecipe));
     } finally {
       setRecipesLoading(false);
     }
-  }, [token]);
+  }, []);
 
   const saveProfile = useCallback(async (updates: Partial<NutritionProfile>) => {
-    if (!token) return;
-    const merged = { ...(profile ?? {}), ...updates };
-    await apiFetch('/nutrition/profile', token, { method: 'PUT', body: JSON.stringify(merged) });
-    setProfile(merged as NutritionProfile);
-  }, [token, profile]);
+    if (!user) return;
+    const next = { ...(profile ?? defaultProfile), ...updates };
+    const { error } = await supabase.from('nutrition_profiles').upsert({ user_id: user.id, ...next });
+    if (error) throw new Error(error.message);
+    setProfile(next);
+    await loadDashboard();
+  }, [loadDashboard, profile, user]);
 
   const logFood = useCallback(async (entry: Omit<FoodLog, 'id' | 'logged_at'>) => {
-    if (!token) return;
-    await apiFetch('/nutrition/food-logs', token, { method: 'POST', body: JSON.stringify(entry) });
+    if (!user) return;
+    const { error } = await supabase.from('food_logs').insert({ user_id: user.id, ...entry });
+    if (error) throw new Error(error.message);
     await loadDashboard();
-  }, [token, loadDashboard]);
+  }, [loadDashboard, user]);
 
   const deleteLog = useCallback(async (id: string) => {
-    if (!token) return;
-    await apiFetch(`/nutrition/food-logs/${id}`, token, { method: 'DELETE' });
+    const { error } = await supabase.from('food_logs').delete().eq('id', id);
+    if (error) throw new Error(error.message);
     await loadDashboard();
-  }, [token, loadDashboard]);
+  }, [loadDashboard]);
 
-  const logWater = useCallback(async (ml = 250) => {
-    if (!token) return;
-    await apiFetch('/nutrition/water-logs', token, { method: 'POST', body: JSON.stringify({ amount_ml: ml }) });
+  const logWater = useCallback(async (amount_ml = 250) => {
+    if (!user) return;
+    const { error } = await supabase.from('water_logs').insert({ user_id: user.id, amount_ml });
+    if (error) throw new Error(error.message);
     await loadDashboard();
-  }, [token, loadDashboard]);
+  }, [loadDashboard, user]);
 
   const saveRecipe = useCallback(async (recipeId: string) => {
-    if (!token) return;
-    await apiFetch(`/nutrition/recipes/${recipeId}/save`, token, { method: 'POST' });
-    setSavedRecipeIds((prev) => new Set([...prev, recipeId]));
-  }, [token]);
+    if (!user) return;
+    const { error } = await supabase.from('saved_recipes').insert({ user_id: user.id, recipe_id: recipeId });
+    if (error && error.code !== '23505') throw new Error(error.message);
+    setSavedRecipeIds((current) => new Set([...current, recipeId]));
+  }, [user]);
 
   const unsaveRecipe = useCallback(async (recipeId: string) => {
-    if (!token) return;
-    await apiFetch(`/nutrition/recipes/${recipeId}/save`, token, { method: 'DELETE' });
-    setSavedRecipeIds((prev) => { const s = new Set(prev); s.delete(recipeId); return s; });
-  }, [token]);
+    if (!user) return;
+    const { error } = await supabase.from('saved_recipes').delete().eq('user_id', user.id).eq('recipe_id', recipeId);
+    if (error) throw new Error(error.message);
+    setSavedRecipeIds((current) => {
+      const next = new Set(current);
+      next.delete(recipeId);
+      return next;
+    });
+  }, [user]);
 
   const loadSavedRecipes = useCallback(async () => {
-    if (!token) return;
-    try {
-      const data = await apiFetch('/nutrition/saved-recipes', token);
-      setSavedRecipeIds(new Set((data.recipes ?? []).map((r: Recipe) => r.id)));
-    } catch { /* non-fatal */ }
-  }, [token]);
+    if (!user) return;
+    const { data, error } = await supabase.from('saved_recipes').select('recipe_id').eq('user_id', user.id);
+    if (error) throw new Error(error.message);
+    setSavedRecipeIds(new Set((data ?? []).map((row) => row.recipe_id)));
+  }, [user]);
 
   const loadGroceryList = useCallback(async () => {
-    if (!token) return;
-    try {
-      const storedId = await AsyncStorage.getItem(GROCERY_LIST_KEY);
-      const data = await apiFetch('/nutrition/grocery-lists', token);
-      if (data.active) {
-        setGroceryListId(data.active.id);
-        setGroceryItems(data.items ?? []);
-        if (data.active.id !== storedId) {
-          await AsyncStorage.setItem(GROCERY_LIST_KEY, data.active.id);
-        }
-      } else {
-        setGroceryItems([]);
-      }
-    } catch { /* non-fatal */ }
-  }, [token]);
+    if (!user) return;
+    const listResult = await supabase.from('grocery_lists').select('id').eq('user_id', user.id).eq('is_active', true).order('created_at', { ascending: false }).limit(1).maybeSingle();
+    if (listResult.error) throw new Error(listResult.error.message);
+    if (!listResult.data) {
+      setGroceryListId(null);
+      setGroceryItems([]);
+      return;
+    }
+    const itemResult = await supabase.from('grocery_items').select('*').eq('list_id', listResult.data.id).order('created_at');
+    if (itemResult.error) throw new Error(itemResult.error.message);
+    setGroceryListId(listResult.data.id);
+    setGroceryItems((itemResult.data ?? []) as GroceryItem[]);
+  }, [user]);
 
-  const ensureGroceryList = useCallback(async (): Promise<string> => {
+  const ensureGroceryList = useCallback(async () => {
+    if (!user) throw new Error('You must be signed in.');
     if (groceryListId) return groceryListId;
-    const data = await apiFetch('/nutrition/grocery-lists/create', token, {
-      method: 'POST',
-      body: JSON.stringify({ title: 'My Grocery List', items: [] }),
-    });
-    const id = data.list_id;
-    setGroceryListId(id);
-    await AsyncStorage.setItem(GROCERY_LIST_KEY, id);
-    return id;
-  }, [groceryListId, token]);
+    const { data, error } = await supabase.from('grocery_lists').insert({ user_id: user.id }).select('id').single();
+    if (error) throw new Error(error.message);
+    setGroceryListId(data.id);
+    return data.id;
+  }, [groceryListId, user]);
 
   const addGroceryItem = useCallback(async (item: { category: string; name: string; amount?: string; unit?: string }) => {
-    if (!token) return;
-    let listId = groceryListId;
-    if (!listId) {
-      const data = await apiFetch('/nutrition/grocery-lists', token, {
-        method: 'POST', body: JSON.stringify({ title: 'My Grocery List', items: [] }),
-      });
-      listId = data.list_id;
-      setGroceryListId(listId!);
-      if (listId) await AsyncStorage.setItem(GROCERY_LIST_KEY, listId);
-    }
-    const newItem = await apiFetch('/nutrition/grocery-items', token, {
-      method: 'POST',
-      body: JSON.stringify({ list_id: listId, ...item }),
-    });
-    setGroceryItems((prev) => [...prev, newItem]);
-  }, [token, groceryListId]);
+    const listId = await ensureGroceryList();
+    const { data, error } = await supabase.from('grocery_items').insert({
+      list_id: listId,
+      category: item.category,
+      name: item.name,
+      amount: item.amount ?? '',
+      unit: item.unit ?? '',
+      custom_added: true,
+    }).select('*').single();
+    if (error) throw new Error(error.message);
+    setGroceryItems((current) => [...current, data as GroceryItem]);
+  }, [ensureGroceryList]);
 
-  const toggleGroceryItem = useCallback(async (id: string, checked: boolean) => {
-    if (!token) return;
-    await apiFetch(`/nutrition/grocery-items/${id}`, token, {
-      method: 'PATCH', body: JSON.stringify({ is_checked: checked }),
-    });
-    setGroceryItems((prev) => prev.map((i) => i.id === id ? { ...i, is_checked: checked } : i));
-  }, [token]);
+  const toggleGroceryItem = useCallback(async (id: string, is_checked: boolean) => {
+    const { error } = await supabase.from('grocery_items').update({ is_checked }).eq('id', id);
+    if (error) throw new Error(error.message);
+    setGroceryItems((current) => current.map((item) => item.id === id ? { ...item, is_checked } : item));
+  }, []);
 
   const deleteGroceryItem = useCallback(async (id: string) => {
-    if (!token) return;
-    await apiFetch(`/nutrition/grocery-items/${id}`, token, { method: 'DELETE' });
-    setGroceryItems((prev) => prev.filter((i) => i.id !== id));
-  }, [token]);
+    const { error } = await supabase.from('grocery_items').delete().eq('id', id);
+    if (error) throw new Error(error.message);
+    setGroceryItems((current) => current.filter((item) => item.id !== id));
+  }, []);
 
   const createGroceryListFromRecipe = useCallback(async (recipe: Recipe) => {
-    if (!token || !recipe.ingredients) return;
-    const items = recipe.ingredients.map((ing) => ({
-      category: categorizeIngredient(ing.name),
-      name: ing.name,
-      amount: ing.amount,
+    if (!user || !recipe.ingredients?.length) return;
+    await supabase.from('grocery_lists').update({ is_active: false }).eq('user_id', user.id);
+    const list = await supabase.from('grocery_lists').insert({
+      user_id: user.id,
+      title: `${recipe.title} — Ingredients`,
+    }).select('id').single();
+    if (list.error) throw new Error(list.error.message);
+    const items = recipe.ingredients.map((ingredient) => ({
+      list_id: list.data.id,
+      category: categorizeIngredient(ingredient.name),
+      name: ingredient.name,
+      amount: ingredient.amount,
       unit: '',
     }));
-    const data = await apiFetch('/nutrition/grocery-lists', token, {
-      method: 'POST',
-      body: JSON.stringify({ title: `${recipe.title} — Ingredients`, items }),
-    });
-    setGroceryListId(data.list_id);
+    const inserted = await supabase.from('grocery_items').insert(items);
+    if (inserted.error) throw new Error(inserted.error.message);
+    setGroceryListId(list.data.id);
     await loadGroceryList();
-  }, [token, loadGroceryList]);
+  }, [loadGroceryList, user]);
 
   useEffect(() => {
-    if (token) {
-      loadDashboard();
-      loadRecipes();
-      loadSavedRecipes();
-      loadGroceryList();
+    if (!user) {
+      setProfile(null);
+      setDashboard(null);
+      setSavedRecipeIds(new Set());
+      setGroceryItems([]);
+      return;
     }
-  }, [token]);
+    setLoading(true);
+    void Promise.all([loadDashboard(), loadRecipes(), loadSavedRecipes(), loadGroceryList()])
+      .finally(() => setLoading(false));
+  }, [user, loadDashboard, loadRecipes, loadSavedRecipes, loadGroceryList]);
 
   return (
     <NutritionContext.Provider value={{
       profile, dashboard, recipes, savedRecipeIds, groceryItems, groceryListId,
       loading, dashboardLoading, recipesLoading,
       loadDashboard, loadRecipes, saveProfile, logFood, deleteLog, logWater,
-      saveRecipe, unsaveRecipe, loadSavedRecipes,
-      loadGroceryList, addGroceryItem, toggleGroceryItem, deleteGroceryItem,
-      createGroceryListFromRecipe,
+      saveRecipe, unsaveRecipe, loadSavedRecipes, loadGroceryList, addGroceryItem,
+      toggleGroceryItem, deleteGroceryItem, createGroceryListFromRecipe,
     }}>
       {children}
     </NutritionContext.Provider>
   );
 }
 
-function categorizeIngredient(name: string): string {
+export function useNutrition() {
+  const context = useContext(NutritionContext);
+  if (!context) throw new Error('useNutrition must be used within NutritionProvider');
+  return context;
+}
+
+function categorizeIngredient(name: string) {
   const lower = name.toLowerCase();
   if (/chicken|beef|turkey|salmon|tuna|fish|pork|shrimp|tofu|tempeh|egg/.test(lower)) return 'Protein';
   if (/milk|yogurt|cheese|butter|cream/.test(lower)) return 'Dairy & Alternatives';

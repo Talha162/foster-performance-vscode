@@ -8,7 +8,8 @@
  */
 
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useAuth } from '@/context/AuthContext';
+import { supabase } from '@/lib/supabase';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -80,12 +81,6 @@ const DEFAULT_WEIGHTS: FPScoreWeights = {
   strengthProgress:   5,
   mobilityScore:      5,
   bodyFatProgress:    5,
-};
-
-const STORAGE_KEYS = {
-  metrics: 'FP_HEALTH_METRICS',
-  scores:  'FP_SCORE_HISTORY',
-  weights: 'FP_SCORE_CONFIG',
 };
 
 // ─── Score calculation ────────────────────────────────────────────────────────
@@ -161,49 +156,58 @@ function calcScore(m: HealthMetric, w: FPScoreWeights, allMetrics: HealthMetric[
 const FPScoreContext = createContext<FPScoreContextType | null>(null);
 
 export function FPScoreProvider({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
   const [metrics, setMetrics] = useState<HealthMetric[]>([]);
   const [scoreHistory, setScoreHistory] = useState<FPScoreEntry[]>([]);
   const [weights, setWeights] = useState<FPScoreWeights>(DEFAULT_WEIGHTS);
 
   useEffect(() => {
-    (async () => {
-      try {
-        const [mStr, sStr, wStr] = await Promise.all([
-          AsyncStorage.getItem(STORAGE_KEYS.metrics),
-          AsyncStorage.getItem(STORAGE_KEYS.scores),
-          AsyncStorage.getItem(STORAGE_KEYS.weights),
-        ]);
-        if (mStr) setMetrics(JSON.parse(mStr));
-        if (sStr) setScoreHistory(JSON.parse(sStr));
-        if (wStr) setWeights({ ...DEFAULT_WEIGHTS, ...JSON.parse(wStr) });
-      } catch (_) {}
-    })();
-  }, []);
+    if (!user) {
+      setMetrics([]);
+      setScoreHistory([]);
+      return;
+    }
+    void Promise.all([
+      supabase.from('health_checkins').select('*').eq('user_id', user.id).order('recorded_on', { ascending: false }),
+      supabase.from('fp_score_entries').select('*').eq('user_id', user.id).order('recorded_on', { ascending: false }),
+      supabase.from('platform_settings').select('value').eq('key', 'fp_score_weights').maybeSingle(),
+    ]).then(([metricResult, scoreResult, weightResult]) => {
+      if (metricResult.error || scoreResult.error || weightResult.error) throw new Error(metricResult.error?.message ?? scoreResult.error?.message ?? weightResult.error?.message);
+      const loadedMetrics = (metricResult.data ?? []).map((row) => ({ id: row.id, date: row.recorded_on, ...(row.metrics as object) } as HealthMetric));
+      setMetrics(loadedMetrics);
+      setScoreHistory((scoreResult.data ?? []).map((row) => {
+        const metric = loadedMetrics.find((item) => item.date === row.recorded_on) ?? { id: row.id, date: row.recorded_on };
+        return { id: row.id, date: row.recorded_on, score: row.score, breakdown: row.components as Record<string, number>, metric };
+      }));
+      if (weightResult.data?.value) setWeights({ ...DEFAULT_WEIGHTS, ...(weightResult.data.value as Partial<FPScoreWeights>) });
+    }).catch(() => undefined);
+  }, [user]);
 
   const currentScore = scoreHistory[0]?.score ?? null;
 
   const addMetric = async (partial: Omit<HealthMetric, 'id' | 'date'>) => {
-    const m: HealthMetric = {
-      ...partial,
-      id: Date.now().toString(),
-      date: new Date().toISOString().split('T')[0],
-    };
+    if (!user) return;
+    const date = new Date().toISOString().split('T')[0];
+    const created = await supabase.from('health_checkins').insert({ user_id: user.id, recorded_on: date, metrics: partial }).select('id').single();
+    if (created.error) throw new Error(created.error.message);
+    const m: HealthMetric = { ...partial, id: created.data.id, date };
     const updated = [m, ...metrics];
     setMetrics(updated);
-    await AsyncStorage.setItem(STORAGE_KEYS.metrics, JSON.stringify(updated));
 
     // Compute new FP Score
     const { score, breakdown } = calcScore(m, weights, updated);
-    const entry: FPScoreEntry = { id: m.id, date: m.date, score, breakdown, metric: m };
+    const scoreResult = await supabase.from('fp_score_entries').upsert({ user_id: user.id, score, components: breakdown, recorded_on: date }, { onConflict: 'user_id,recorded_on' }).select('id').single();
+    if (scoreResult.error) throw new Error(scoreResult.error.message);
+    const entry: FPScoreEntry = { id: scoreResult.data.id, date: m.date, score, breakdown, metric: m };
     const updatedHistory = [entry, ...scoreHistory];
     setScoreHistory(updatedHistory);
-    await AsyncStorage.setItem(STORAGE_KEYS.scores, JSON.stringify(updatedHistory));
   };
 
   const updateWeights = async (partial: Partial<FPScoreWeights>) => {
     const w = { ...weights, ...partial };
+    const { error } = await supabase.from('platform_settings').upsert({ key: 'fp_score_weights', value: w, description: 'Global FP Score component weights.', updated_by: user?.id });
+    if (error) throw new Error(error.message);
     setWeights(w);
-    await AsyncStorage.setItem(STORAGE_KEYS.weights, JSON.stringify(w));
   };
 
   return (

@@ -1,10 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-
-/** Derive the API base URL from the Expo public domain env var (same logic as book-session). */
-const API_BASE = process.env.EXPO_PUBLIC_DOMAIN
-  ? `https://${process.env.EXPO_PUBLIC_DOMAIN}/api`
-  : 'http://localhost:8080/api';
+import { useAuth } from '@/context/AuthContext';
+import { supabase } from '@/lib/supabase';
+import { bookingRowToAppBooking, cancelBooking as cancelSupabaseBooking, fetchBookings } from '@/lib/coachRepository';
 
 // ─── Core Types ──────────────────────────────────────────────────────────────
 
@@ -930,100 +927,96 @@ interface AppContextType {
   logWorkout: (programId: string) => void;
   addBooking: (booking: Omit<Booking, 'id' | 'createdAt'>) => void;
   cancelBooking: (bookingId: string, cancellationToken: string) => Promise<{ refunded: boolean; partial: boolean }>;
-  apiBase: string;
 }
 
 const AppContext = createContext<AppContextType | null>(null);
 
-const PROGRESS_KEY = '@foster_progress';
-const LOGS_KEY = '@foster_logs';
-const ACTIVE_WORKOUT_KEY = '@foster_active_workout';
-const ACTIVE_NUTRITION_KEY = '@foster_active_nutrition';
-const BOOKINGS_KEY = '@foster_bookings';
-
-function parseStoredArray<T>(value: string | null): T[] | null {
-  if (!value) return null;
-  try {
-    const parsed = JSON.parse(value);
-    return Array.isArray(parsed) ? parsed : null;
-  } catch {
-    return null;
-  }
-}
-
 // ─── Provider ─────────────────────────────────────────────────────────────────
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
   const [progressEntries, setProgressEntries] = useState<ProgressEntry[]>([]);
   const [workoutLogs, setWorkoutLogs] = useState<WorkoutLog[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
-  const [activeWorkoutId, setActiveWorkoutId] = useState<string | null>('p7');
-  const [activeNutritionId, setActiveNutritionId] = useState<string | null>('np1');
+  const [activeWorkoutId, setActiveWorkoutId] = useState<string | null>(null);
+  const [activeNutritionId, setActiveNutritionId] = useState<string | null>(null);
 
   useEffect(() => {
-    Promise.all([
-      AsyncStorage.getItem(PROGRESS_KEY),
-      AsyncStorage.getItem(LOGS_KEY),
-      AsyncStorage.getItem(ACTIVE_WORKOUT_KEY),
-      AsyncStorage.getItem(ACTIVE_NUTRITION_KEY),
-      AsyncStorage.getItem(BOOKINGS_KEY),
-    ]).then(([prog, logs, aw, an, bkgs]) => {
-      const storedProgress = parseStoredArray<ProgressEntry>(prog);
-      const storedLogs = parseStoredArray<WorkoutLog>(logs);
-      const storedBookings = parseStoredArray<Booking>(bkgs);
-      if (storedProgress) setProgressEntries(storedProgress);
-      else {
-        const demo: ProgressEntry[] = [
-          { id: '1', date: '2026-07-27', weight: 215, workoutsThisWeek: 4, notes: 'Feeling explosive' },
-          { id: '2', date: '2026-07-20', weight: 217, workoutsThisWeek: 5, notes: 'Great week of training' },
-          { id: '3', date: '2026-07-13', weight: 219, workoutsThisWeek: 4, notes: 'Speed sessions on point' },
-          { id: '4', date: '2026-07-06', weight: 221, workoutsThisWeek: 3, notes: 'Back on track' },
-          { id: '5', date: '2026-06-29', weight: 223, workoutsThisWeek: 3, notes: 'Started program' },
-        ];
-        setProgressEntries(demo);
+    if (!user) {
+      setProgressEntries([]);
+      setWorkoutLogs([]);
+      setBookings([]);
+      setActiveWorkoutId(null);
+      setActiveNutritionId(null);
+      return;
+    }
+    void Promise.all([
+      supabase.from('progress_entries').select('*').eq('user_id', user.id).order('recorded_on', { ascending: false }),
+      supabase.from('workout_sessions').select('program_id, completed_at').eq('user_id', user.id).order('completed_at', { ascending: false }),
+      supabase.from('user_app_state').select('*').eq('user_id', user.id).maybeSingle(),
+      fetchBookings({ memberId: user.id }),
+    ]).then(([progressResult, logsResult, stateResult, bookingRows]) => {
+      if (progressResult.error || logsResult.error || stateResult.error) {
+        throw new Error(progressResult.error?.message ?? logsResult.error?.message ?? stateResult.error?.message);
       }
-      if (storedLogs) setWorkoutLogs(storedLogs);
-      if (aw) setActiveWorkoutId(aw);
-      if (an) setActiveNutritionId(an);
-      if (storedBookings) setBookings(storedBookings);
-    }).catch(() => {
-      // Storage can be unavailable in private browsing or after an interrupted
-      // migration. Defaults remain usable and the UI must still render.
-    });
-  }, []);
+      setProgressEntries((progressResult.data ?? []).map((row) => ({
+        id: row.id,
+        date: row.recorded_on,
+        weight: Number(row.weight_kg ?? 0),
+        workoutsThisWeek: row.workouts_this_week,
+        notes: row.notes,
+      })));
+      setWorkoutLogs((logsResult.data ?? []).filter((row) => row.program_id).map((row) => ({ programId: row.program_id!, completedAt: row.completed_at })));
+      setActiveWorkoutId(stateResult.data?.active_workout_id ?? null);
+      setActiveNutritionId(stateResult.data?.active_nutrition_id ?? null);
+      setBookings(bookingRows.map(bookingRowToAppBooking));
+    }).catch(() => undefined);
+  }, [user]);
 
   const setActiveWorkout = useCallback(async (id: string | null) => {
     setActiveWorkoutId(id);
-    if (id) await AsyncStorage.setItem(ACTIVE_WORKOUT_KEY, id);
-    else await AsyncStorage.removeItem(ACTIVE_WORKOUT_KEY);
-  }, []);
+    if (!user) return;
+    const { error } = await supabase.from('user_app_state').upsert({ user_id: user.id, active_workout_id: id });
+    if (error) throw new Error(error.message);
+  }, [user]);
 
   const setActiveNutrition = useCallback(async (id: string | null) => {
     setActiveNutritionId(id);
-    if (id) await AsyncStorage.setItem(ACTIVE_NUTRITION_KEY, id);
-    else await AsyncStorage.removeItem(ACTIVE_NUTRITION_KEY);
-  }, []);
+    if (!user) return;
+    const { error } = await supabase.from('user_app_state').upsert({ user_id: user.id, active_nutrition_id: id });
+    if (error) throw new Error(error.message);
+  }, [user]);
 
   const addProgressEntry = useCallback(async (entry: Omit<ProgressEntry, 'id'>) => {
-    const newEntry: ProgressEntry = { ...entry, id: Date.now().toString() };
-    const updated = [newEntry, ...progressEntries];
-    setProgressEntries(updated);
-    await AsyncStorage.setItem(PROGRESS_KEY, JSON.stringify(updated));
-  }, [progressEntries]);
+    if (!user) return;
+    const { data, error } = await supabase.from('progress_entries').insert({
+      user_id: user.id,
+      recorded_on: entry.date,
+      weight_kg: entry.weight,
+      workouts_this_week: entry.workoutsThisWeek,
+      notes: entry.notes,
+    }).select('id').single();
+    if (error) throw new Error(error.message);
+    setProgressEntries((current) => [{ ...entry, id: data.id }, ...current]);
+  }, [user]);
 
   const logWorkout = useCallback(async (programId: string) => {
     const log: WorkoutLog = { programId, completedAt: new Date().toISOString() };
-    const updated = [log, ...workoutLogs];
-    setWorkoutLogs(updated);
-    await AsyncStorage.setItem(LOGS_KEY, JSON.stringify(updated));
-  }, [workoutLogs]);
+    if (!user) return;
+    const program = WORKOUT_PROGRAMS.find((item) => item.id === programId);
+    const { error } = await supabase.from('workout_sessions').insert({
+      user_id: user.id,
+      workout_name: program?.title ?? programId,
+      completed_at: log.completedAt,
+    });
+    if (error) throw new Error(error.message);
+    setWorkoutLogs((current) => [log, ...current]);
+  }, [user]);
 
   const addBooking = useCallback(async (booking: Omit<Booking, 'id' | 'createdAt'>) => {
     const newBooking: Booking = { ...booking, id: Date.now().toString(), createdAt: new Date().toISOString() };
-    const updated = [newBooking, ...bookings];
-    setBookings(updated);
-    await AsyncStorage.setItem(BOOKINGS_KEY, JSON.stringify(updated));
-  }, [bookings]);
+    setBookings((current) => [newBooking, ...current.filter((item) => item.serverId !== booking.serverId)]);
+  }, []);
 
   const cancelBooking = useCallback(async (
     bookingId: string,
@@ -1034,25 +1027,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     let refunded = false;
     let partial = false;
 
-    if (booking?.serverId && booking.cancellationToken) {
+    if (booking?.serverId) {
       // Call the server to cancel and trigger the refund.
       // Throws on network error or non-2xx response — caller must handle the error
       // and must NOT update local state so the booking stays "upcoming".
-      const resp = await fetch(`${API_BASE}/bookings/${booking.serverId}/cancel`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cancellationToken }),
-      });
+      await cancelSupabaseBooking(booking.serverId);
 
-      const data = await resp.json().catch(() => ({}));
-
-      if (!resp.ok) {
-        // Surface the server's error message; do not cancel locally.
-        throw new Error(data.error ?? `Cancellation failed (HTTP ${resp.status}).`);
-      }
-
-      refunded = data.refunded ?? false;
-      partial = data.refundPartial ?? false;
+      refunded = false;
+      partial = false;
     }
     // Bookings without a serverId/cancellationToken (e.g. demo/offline) cancel locally only.
 
@@ -1060,7 +1042,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       b.id === bookingId ? { ...b, status: 'cancelled' as const } : b
     );
     setBookings(updated);
-    await AsyncStorage.setItem(BOOKINGS_KEY, JSON.stringify(updated));
     return { refunded, partial };
   }, [bookings]);
 
@@ -1080,7 +1061,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     logWorkout,
     addBooking,
     cancelBooking,
-    apiBase: API_BASE,
   }), [
     activeNutritionId, activeWorkoutId, addBooking, addProgressEntry, bookings,
     cancelBooking, logWorkout, progressEntries, setActiveNutrition,
