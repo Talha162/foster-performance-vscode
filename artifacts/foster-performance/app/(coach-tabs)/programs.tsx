@@ -18,14 +18,9 @@ import { router } from 'expo-router';
 import { useColors } from '@/hooks/useColors';
 import { BackgroundLayer } from '@/components/BackgroundLayer';
 import { useAuth } from '@/context/AuthContext';
+import { supabase } from '@/lib/supabase';
 
 const CATEGORIES = ['Fitness', 'Strength', 'Cardio', 'Nutrition', 'Mobility', 'Mental', 'Sport-Specific', 'Other'];
-
-function getApiBase() {
-  const domain = process.env.EXPO_PUBLIC_DOMAIN;
-  if (domain) return `https://${domain}/api`;
-  return 'http://localhost:8080/api';
-}
 
 interface Program {
   id: string;
@@ -39,7 +34,7 @@ interface Program {
 export default function CoachPrograms() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { token } = useAuth();
+  const { user } = useAuth();
 
   const [programs, setPrograms] = useState<Program[]>([]);
   const [loading, setLoading] = useState(true);
@@ -58,17 +53,16 @@ export default function CoachPrograms() {
 
   const loadPrograms = useCallback(async () => {
     try {
-      const resp = await fetch(`${getApiBase()}/coach-programs`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await resp.json().catch(() => ({}));
-      setPrograms(Array.isArray(data.programs) ? data.programs : []);
+      if (!user) return;
+      const { data, error } = await supabase.from('workout_programs').select('id,title,description,category,price_cents,status').eq('owner_id', user.id).order('updated_at', { ascending: false });
+      if (error) throw new Error(error.message);
+      setPrograms((data ?? []).filter((item) => item.status !== 'archived') as Program[]);
     } catch {
       setPrograms([]);
     } finally {
       setLoading(false);
     }
-  }, [token]);
+  }, [user]);
 
   useEffect(() => { loadPrograms(); }, [loadPrograms]);
 
@@ -81,21 +75,22 @@ export default function CoachPrograms() {
     setCreating(true);
     try {
       const priceCents = newPrice ? Math.round(parseFloat(newPrice) * 100) : 0;
-      const resp = await fetch(`${getApiBase()}/coach-programs`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          title: newTitle.trim(),
-          description: newDesc.trim(),
-          category: newCategory,
-          priceCents,
-          status: 'draft',
-        }),
+      if (!user) throw new Error('Authentication required');
+      const { error } = await supabase.from('workout_programs').insert({
+        id: `coach-${user.id}-${Date.now()}`,
+        owner_id: user.id,
+        title: newTitle.trim(),
+        description: newDesc.trim(),
+        category: newCategory,
+        training_type: newCategory.toLowerCase(),
+        level: 'Beginner',
+        weeks: 1,
+        days_per_week: 1,
+        duration_minutes: 30,
+        price_cents: priceCents,
+        status: 'draft',
       });
-      if (!resp.ok) throw new Error('Create failed');
+      if (error) throw new Error(error.message);
       setShowCreate(false);
       setNewTitle('');
       setNewDesc('');
@@ -120,10 +115,8 @@ export default function CoachPrograms() {
           style: 'destructive',
           onPress: async () => {
             try {
-              await fetch(`${getApiBase()}/coach-programs/${program.id}`, {
-                method: 'DELETE',
-                headers: { Authorization: `Bearer ${token}` },
-              });
+              const { error } = await supabase.from('workout_programs').delete().eq('id', program.id);
+              if (error) throw new Error(error.message);
               setPrograms((prev) => prev.filter((p) => p.id !== program.id));
             } catch {
               Alert.alert('Error', 'Could not delete program.');
@@ -137,14 +130,8 @@ export default function CoachPrograms() {
   const handleToggleStatus = async (program: Program) => {
     const newStatus = program.status === 'published' ? 'draft' : 'published';
     try {
-      await fetch(`${getApiBase()}/coach-programs/${program.id}`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ status: newStatus }),
-      });
+      const { error } = await supabase.from('workout_programs').update({ status: newStatus }).eq('id', program.id);
+      if (error) throw new Error(error.message);
       setPrograms((prev) =>
         prev.map((p) => (p.id === program.id ? { ...p, status: newStatus } : p))
       );

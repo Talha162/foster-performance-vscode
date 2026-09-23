@@ -7,11 +7,12 @@ import * as Haptics from 'expo-haptics';
 import { useColors } from '@/hooks/useColors';
 import { BackgroundLayer } from '@/components/BackgroundLayer';
 import { useAuth } from '@/context/AuthContext';
+import { supabase } from '@/lib/supabase';
 
 export default function AdminSettings() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { token } = useAuth();
+  const { user } = useAuth();
 
   const [commissionPct, setCommissionPct] = useState('10');
   const [membershipFee, setMembershipFee] = useState('9.99');
@@ -23,20 +24,15 @@ export default function AdminSettings() {
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
   const botPad = Platform.OS === 'web' ? 34 : insets.bottom;
 
-  const getApiBase = () =>
-    process.env.EXPO_PUBLIC_API_BASE ?? `https://${process.env.EXPO_PUBLIC_DOMAIN}/api`;
-
-  // Load settings from API on mount
+  // Load settings from Supabase on mount.
   const loadSettings = useCallback(async () => {
     setLoading(true);
     try {
-      const resp = await fetch(`${getApiBase()}/admin/settings`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await resp.json().catch(() => ({}));
-      if (Array.isArray(data.settings)) {
+      const { data, error } = await supabase.from('platform_settings').select('key,value');
+      if (error) throw error;
+      if (Array.isArray(data)) {
         const find = (key: string, fallback: string) =>
-          (data.settings as any[]).find((s: any) => s.key === key)?.value ?? fallback;
+          String((data as any[]).find((s: any) => s.key === key)?.value ?? fallback);
         setCommissionPct(find('platform_commission_pct', '10'));
         setMembershipFee(find('member_monthly_fee', '9.99'));
         setCoachAppFee(find('coach_app_fee', '9.99'));
@@ -46,16 +42,18 @@ export default function AdminSettings() {
     } finally {
       setLoading(false);
     }
-  }, [token]);
+  }, []);
 
   useEffect(() => { loadSettings(); }, [loadSettings]);
 
   const saveSetting = async (key: string, value: string) => {
-    await fetch(`${getApiBase()}/admin/settings`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ key, value }),
+    const numericValue = Number(value);
+    const { error } = await supabase.from('platform_settings').upsert({
+      key,
+      value: Number.isFinite(numericValue) ? numericValue : value,
+      updated_by: user?.id ?? null,
     });
+    if (error) throw error;
   };
 
   const handleSave = async () => {

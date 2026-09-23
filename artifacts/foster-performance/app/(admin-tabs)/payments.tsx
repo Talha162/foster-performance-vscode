@@ -5,38 +5,30 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useColors } from '@/hooks/useColors';
 import { BackgroundLayer } from '@/components/BackgroundLayer';
-import { useAuth } from '@/context/AuthContext';
+import { fetchBookings } from '@/lib/coachRepository';
 
 const PLATFORM_FEE = 0.10;
 
 export default function AdminPayments() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { token } = useAuth();
   const [bookings, setBookings] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
   const botPad = Platform.OS === 'web' ? 34 : insets.bottom;
 
-  const getApiBase = () =>
-    process.env.EXPO_PUBLIC_API_BASE ?? `https://${process.env.EXPO_PUBLIC_DOMAIN}/api`;
-
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const resp = await fetch(`${getApiBase()}/admin/bookings`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await resp.json().catch(() => ({}));
-      setBookings(Array.isArray(data.bookings) ? data.bookings : []);
+      setBookings(await fetchBookings());
     } catch { setBookings([]); }
     finally { setLoading(false); }
-  }, [token]);
+  }, []);
 
   useEffect(() => { load(); }, [load]);
 
-  const totalRevenue = bookings.reduce((s, b) => s + (b.price ?? 0), 0) / 100;
+  const totalRevenue = bookings.reduce((s, b) => s + (b.price ?? 0), 0);
   const platformRevenue = totalRevenue * PLATFORM_FEE;
   const coachPayouts = totalRevenue - platformRevenue;
 

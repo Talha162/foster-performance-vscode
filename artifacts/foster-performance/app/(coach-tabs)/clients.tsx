@@ -6,11 +6,12 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useColors } from '@/hooks/useColors';
 import { BackgroundLayer } from '@/components/BackgroundLayer';
 import { useAuth } from '@/context/AuthContext';
+import { fetchBookings } from '@/lib/coachRepository';
 
 export default function CoachClients() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { user, token } = useAuth();
+  const { user } = useAuth();
   const [clients, setClients] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -20,12 +21,7 @@ export default function CoachClients() {
   useEffect(() => {
     (async () => {
       try {
-        const resp = await fetch(
-          `${process.env.EXPO_PUBLIC_API_BASE ?? `https://${process.env.EXPO_PUBLIC_DOMAIN}/api`}/bookings?coachId=${user?.id}`,
-          { headers: { Authorization: `Bearer ${token}` } }
-        );
-        const data = await resp.json().catch(() => ({}));
-        const bookings: any[] = Array.isArray(data.bookings) ? data.bookings : [];
+        const bookings: any[] = user ? await fetchBookings({ coachId: user.id }) : [];
         // Deduplicate by athlete email
         const seen = new Set<string>();
         const unique = bookings.filter((b) => {
@@ -37,7 +33,7 @@ export default function CoachClients() {
       } catch { setClients([]); }
       finally { setLoading(false); }
     })();
-  }, []);
+  }, [user]);
 
   return (
     <View style={styles.root}>

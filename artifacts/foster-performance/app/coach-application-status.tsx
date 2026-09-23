@@ -7,6 +7,7 @@ import * as Haptics from 'expo-haptics';
 import { useColors } from '@/hooks/useColors';
 import { BackgroundLayer } from '@/components/BackgroundLayer';
 import { useAuth } from '@/context/AuthContext';
+import { supabase } from '@/lib/supabase';
 
 const STATUS_CONFIG: Record<string, { color: string; icon: string; title: string; body: string }> = {
   Incomplete: {
@@ -49,7 +50,7 @@ const STATUS_CONFIG: Record<string, { color: string; icon: string; title: string
 export default function CoachApplicationStatusScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { user, token, logout } = useAuth();
+  const { user, logout } = useAuth();
   const [loading, setLoading] = useState(true);
   const [application, setApplication] = useState<any>(null);
   const [error, setError] = useState('');
@@ -57,25 +58,21 @@ export default function CoachApplicationStatusScreen() {
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
   const botPad = Platform.OS === 'web' ? 34 : insets.bottom;
 
-  const getApiBase = () =>
-    process.env.EXPO_PUBLIC_API_BASE ?? `https://${process.env.EXPO_PUBLIC_DOMAIN}/api`;
-
   useEffect(() => {
     (async () => {
-      if (!token) { setLoading(false); return; }
+      if (!user) { setLoading(false); return; }
       try {
-        const resp = await fetch(`${getApiBase()}/coach-applications/my`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        const data = await resp.json();
-        setApplication(data.application);
+        const { data, error: queryError } = await supabase.from('coach_applications').select('*').eq('user_id', user.id).maybeSingle();
+        if (queryError) throw new Error(queryError.message);
+        const labels: Record<string, string> = { incomplete: 'Incomplete', submitted: 'Submitted', under_review: 'Pending Review', approved: 'Approved', rejected: 'Rejected' };
+        setApplication(data ? { ...data, status: labels[data.status] ?? data.status, submittedAt: data.submitted_at, adminNotes: data.admin_notes } : null);
       } catch {
         setError('Could not load application status');
       } finally {
         setLoading(false);
       }
     })();
-  }, [token]);
+  }, [user]);
 
   // If approved, redirect to coach dashboard
   useEffect(() => {

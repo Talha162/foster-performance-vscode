@@ -10,6 +10,8 @@ import * as Haptics from 'expo-haptics';
 import { useColors } from '@/hooks/useColors';
 import { BackgroundLayer } from '@/components/BackgroundLayer';
 import { useLeaderboard, type LeaderboardEntry, type Challenge } from '@/context/LeaderboardContext';
+import { useAuth } from '@/context/AuthContext';
+import { supabase } from '@/lib/supabase';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -143,6 +145,7 @@ export default function LeaderboardScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const { profile, fetchGlobal, fetchLeague, fetchFriends, fetchChallenges, addFriend, acceptFriend } = useLeaderboard();
+  const { user } = useAuth();
 
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
   const botPad = Platform.OS === 'web' ? 34 : insets.bottom;
@@ -204,13 +207,11 @@ export default function LeaderboardScreen() {
   };
 
   const handleJoinChallenge = useCallback(async (challengeId: string) => {
-    const apiBase = process.env.EXPO_PUBLIC_API_BASE ?? `https://${process.env.EXPO_PUBLIC_DOMAIN}/api`;
-    await fetch(`${apiBase}/leaderboard/challenges/${challengeId}/join`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-    }).catch(() => null);
+    if (!user) return;
+    const { error } = await supabase.from('challenge_members').upsert({ challenge_id: challengeId, user_id: user.id });
+    if (error) throw error;
     loadTab('challenges');
-  }, [loadTab]);
+  }, [loadTab, user]);
 
   const handleAcceptFriend = async (requestId: string) => {
     setAcceptingRequest(requestId);

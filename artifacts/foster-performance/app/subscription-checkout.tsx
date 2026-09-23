@@ -2,15 +2,15 @@ import React, { useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  KeyboardAvoidingView,
   Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from 'react-native';
+import * as Linking from 'expo-linking';
+import * as WebBrowser from 'expo-web-browser';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons, Feather } from '@expo/vector-icons';
@@ -18,19 +18,7 @@ import * as Haptics from 'expo-haptics';
 import { useColors } from '@/hooks/useColors';
 import { BackgroundLayer } from '@/components/BackgroundLayer';
 import { useAuth } from '@/context/AuthContext';
-
-const API_BASE = process.env.EXPO_PUBLIC_API_BASE ?? `https://${process.env.EXPO_PUBLIC_DOMAIN}/api`;
-
-function formatCardNumber(raw: string) {
-  const digits = raw.replace(/\D/g, '').slice(0, 16);
-  return digits.replace(/(.{4})/g, '$1 ').trim();
-}
-
-function formatExpiry(raw: string) {
-  const digits = raw.replace(/\D/g, '').slice(0, 4);
-  if (digits.length >= 3) return digits.slice(0, 2) + '/' + digits.slice(2);
-  return digits;
-}
+import { supabase } from '@/lib/supabase';
 
 export default function SubscriptionCheckoutScreen() {
   const colors = useColors();
@@ -42,10 +30,6 @@ export default function SubscriptionCheckoutScreen() {
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
   const botPad = Platform.OS === 'web' ? 34 : insets.bottom;
 
-  const [cardNumber, setCardNumber] = useState('');
-  const [cardExpiry, setCardExpiry] = useState('');
-  const [cardCvc, setCardCvc] = useState('');
-  const [cardName, setCardName] = useState(user?.name ?? '');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -54,47 +38,20 @@ export default function SubscriptionCheckoutScreen() {
   const planDetail = plan === 'annual' ? 'Billed $79.99 today ($6.67/month)' : 'Billed $9.99 today, renews monthly';
 
   const handleSubscribe = async () => {
-    const rawCard = cardNumber.replace(/\s/g, '');
-    if (rawCard.length < 13) { setError('Please enter a valid card number'); return; }
-    if (cardExpiry.length < 4) { setError('Please enter a valid expiry date (MM/YY)'); return; }
-    if (cardCvc.length < 3) { setError('Please enter your CVC'); return; }
-
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
     setLoading(true);
     setError('');
 
     try {
-      const idempotencyKey = `sub-${user?.id ?? 'anon'}-${Date.now()}`;
-      const resp = await fetch(`${API_BASE}/subscriptions/create`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userId: user?.id,
-          userName: user?.name,
-          userEmail: user?.email,
-          cardNumber: rawCard,
-          cardExpiry,
-          cardCvc,
-          cardName: cardName || user?.name,
-          plan,
-          idempotencyKey,
-        }),
+      const returnUrl = Linking.createURL('/billing-settings');
+      const { data, error: billingError } = await supabase.functions.invoke('billing', {
+        body: { action: 'create-member-checkout', plan, returnUrl },
       });
-
-      const data = await resp.json();
-
-      if (!resp.ok) {
-        setError(data.error ?? 'Subscription failed. Please check your card details.');
-        return;
-      }
-
-      await updateSubscription({
-        subscriptionStatus: data.status === 'trialing' ? 'trial' : 'active',
-        subscriptionPlan: plan,
-        subscriptionEndDate: data.currentPeriodEnd,
-        stripeCustomerId: data.customerId,
-        stripeSubscriptionId: data.subscriptionId,
-      });
+      if (billingError) throw billingError;
+      if (!data?.checkoutUrl) throw new Error('Secure checkout is unavailable.');
+      const result = await WebBrowser.openAuthSessionAsync(data.checkoutUrl, returnUrl);
+      if (result.type !== 'success') return;
+      await updateSubscription({});
 
       router.replace('/(tabs)');
       setTimeout(() => {
@@ -105,7 +62,7 @@ export default function SubscriptionCheckoutScreen() {
         );
       }, 500);
     } catch {
-      setError('Network error. Please check your connection and try again.');
+      setError('Checkout could not be started. Please try again or contact support.');
     } finally {
       setLoading(false);
     }
@@ -126,7 +83,7 @@ export default function SubscriptionCheckoutScreen() {
         </View>
       </View>
 
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+      <View style={{ flex: 1 }}>
         <ScrollView
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
@@ -170,74 +127,15 @@ export default function SubscriptionCheckoutScreen() {
             </Text>
           </View>
 
-          {/* Card Form */}
+          {/* Secure payment handoff */}
           <View style={[styles.formCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <Text style={[styles.formTitle, { color: colors.foreground }]}>Payment Details</Text>
+            <Text style={[styles.formTitle, { color: colors.foreground }]}>Secure Stripe Checkout</Text>
             <Text style={[styles.formSubtitle, { color: colors.mutedForeground }]}>
-              Test mode — use card 4242 4242 4242 4242, any future expiry, any CVC
+              Continue to Stripe's encrypted checkout to enter your payment details. Foster Performance never receives or stores your card number.
             </Text>
-
-            <View style={styles.field}>
-              <Text style={[styles.label, { color: colors.mutedForeground }]}>Cardholder Name</Text>
-              <View style={[styles.inputWrap, { backgroundColor: colors.background, borderColor: colors.border }]}>
-                <Feather name="user" size={15} color={colors.mutedForeground} />
-                <TextInput
-                  style={[styles.input, { color: colors.foreground }]}
-                  placeholder="Name on card"
-                  placeholderTextColor={colors.mutedForeground}
-                  value={cardName}
-                  onChangeText={setCardName}
-                  autoCapitalize="words"
-                />
-              </View>
-            </View>
-
-            <View style={styles.field}>
-              <Text style={[styles.label, { color: colors.mutedForeground }]}>Card Number</Text>
-              <View style={[styles.inputWrap, { backgroundColor: colors.background, borderColor: colors.border }]}>
-                <MaterialCommunityIcons name="credit-card-outline" size={15} color={colors.mutedForeground} />
-                <TextInput
-                  style={[styles.input, { color: colors.foreground }]}
-                  placeholder="4242 4242 4242 4242"
-                  placeholderTextColor={colors.mutedForeground}
-                  value={cardNumber}
-                  onChangeText={(t) => setCardNumber(formatCardNumber(t))}
-                  keyboardType="numeric"
-                  maxLength={19}
-                />
-              </View>
-            </View>
-
-            <View style={styles.cardRow}>
-              <View style={[styles.field, { flex: 1 }]}>
-                <Text style={[styles.label, { color: colors.mutedForeground }]}>Expiry</Text>
-                <View style={[styles.inputWrap, { backgroundColor: colors.background, borderColor: colors.border }]}>
-                  <TextInput
-                    style={[styles.input, { color: colors.foreground }]}
-                    placeholder="MM/YY"
-                    placeholderTextColor={colors.mutedForeground}
-                    value={cardExpiry}
-                    onChangeText={(t) => setCardExpiry(formatExpiry(t))}
-                    keyboardType="numeric"
-                    maxLength={5}
-                  />
-                </View>
-              </View>
-              <View style={[styles.field, { flex: 1 }]}>
-                <Text style={[styles.label, { color: colors.mutedForeground }]}>CVC</Text>
-                <View style={[styles.inputWrap, { backgroundColor: colors.background, borderColor: colors.border }]}>
-                  <TextInput
-                    style={[styles.input, { color: colors.foreground }]}
-                    placeholder="123"
-                    placeholderTextColor={colors.mutedForeground}
-                    value={cardCvc}
-                    onChangeText={(t) => setCardCvc(t.replace(/\D/g, '').slice(0, 4))}
-                    keyboardType="numeric"
-                    maxLength={4}
-                    secureTextEntry
-                  />
-                </View>
-              </View>
+            <View style={styles.secureRow}>
+              <MaterialCommunityIcons name="shield-lock-outline" size={22} color={colors.success} />
+              <Text style={[styles.noteText, { color: colors.mutedForeground }]}>PCI-compliant payment processing</Text>
             </View>
 
             {error ? (
@@ -248,7 +146,7 @@ export default function SubscriptionCheckoutScreen() {
             ) : null}
           </View>
         </ScrollView>
-      </KeyboardAvoidingView>
+      </View>
 
       {/* CTA Bar */}
       <View style={[styles.ctaBar, { backgroundColor: colors.background, borderTopColor: colors.border, paddingBottom: botPad + 16 }]}>
@@ -313,6 +211,7 @@ const styles = StyleSheet.create({
   formCard: { borderRadius: 16, padding: 16, borderWidth: 1, gap: 14 },
   formTitle: { fontSize: 15, fontFamily: 'Inter_700Bold' },
   formSubtitle: { fontSize: 11, fontFamily: 'Inter_400Regular', lineHeight: 16, marginTop: -6 },
+  secureRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingTop: 4 },
   field: { gap: 5 },
   label: { fontSize: 12, fontFamily: 'Inter_600SemiBold' },
   inputWrap: {

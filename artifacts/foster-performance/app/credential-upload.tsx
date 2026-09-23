@@ -1,7 +1,6 @@
 /**
- * Credential Upload screen — lets coach applicants attach certifications
- * and résumé placeholders.  Documents are stored as metadata only (test mode).
- * Credential list is persisted to AsyncStorage under @coach_credentials.
+ * Credential Upload screen — lets coach applicants manage certification
+ * metadata persisted with their Supabase coach application.
  */
 import React, { useEffect, useState } from 'react';
 import {
@@ -12,11 +11,10 @@ import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useColors } from '@/hooks/useColors';
 import { BackgroundLayer } from '@/components/BackgroundLayer';
-
-const STORAGE_KEY = '@coach_credentials';
+import { useAuth } from '@/context/AuthContext';
+import { supabase } from '@/lib/supabase';
 
 interface CredEntry {
   id: string;
@@ -38,6 +36,7 @@ const CRED_TYPES = [
 export default function CredentialUploadScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
+  const { user } = useAuth();
   const [credentials, setCredentials] = useState<CredEntry[]>([]);
   const [name, setName] = useState('');
   const [type, setType] = useState<CredEntry['type']>('certification');
@@ -47,16 +46,16 @@ export default function CredentialUploadScreen() {
   const botPad = Platform.OS === 'web' ? 34 : insets.bottom;
 
   useEffect(() => {
-    AsyncStorage.getItem(STORAGE_KEY).then((raw) => {
-      if (raw) {
-        try { setCredentials(JSON.parse(raw)); } catch {}
-      }
-    });
-  }, []);
+    if (!user) return;
+    supabase.from('coach_applications').select('certifications').eq('user_id', user.id).maybeSingle()
+      .then(({ data }) => setCredentials(Array.isArray(data?.certifications) ? data.certifications as CredEntry[] : []));
+  }, [user]);
 
   const save = async (updated: CredEntry[]) => {
     setCredentials(updated);
-    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+    if (!user) throw new Error('You must be signed in.');
+    const { error } = await supabase.from('coach_applications').update({ certifications: updated }).eq('user_id', user.id);
+    if (error) throw error;
   };
 
   const handleAdd = async () => {

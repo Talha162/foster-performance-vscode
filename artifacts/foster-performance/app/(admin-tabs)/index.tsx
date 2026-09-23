@@ -39,7 +39,7 @@ export default function AdminDashboard() {
           supabase.from('profiles').select('id', { count: 'exact', head: true }).eq('role', 'member'),
           supabase.from('profiles').select('id', { count: 'exact', head: true }).eq('role', 'coach'),
           supabase.from('coach_applications').select('id', { count: 'exact', head: true }).eq('status', 'submitted'),
-          supabase.from('bookings').select('price_cents', { count: 'exact', head: true }),
+          supabase.from('bookings').select('price_cents', { count: 'exact' }),
         ]);
         const revenue = (bookings.data ?? []).reduce((sum, b: any) => sum + (b.price_cents ?? 0), 0) / 100;
         setStats({
@@ -89,10 +89,10 @@ export default function AdminDashboard() {
         ) : stats && (
           <View style={styles.statsRow}>
             {[
-              { label: 'Members', value: stats.members ?? 0, color: '#2F80FF' },
-              { label: 'Coaches', value: stats.coaches ?? 0, color: '#35C98A' },
-              { label: 'Applicants', value: stats.applicants ?? 0, color: '#D6A84B' },
-              { label: 'Bookings', value: stats.bookings ?? 0, color: '#A78BFA' },
+              { label: 'Members', value: stats.totalMembers ?? 0, color: '#2F80FF' },
+              { label: 'Coaches', value: stats.totalCoaches ?? 0, color: '#35C98A' },
+              { label: 'Applicants', value: stats.pendingApplications ?? 0, color: '#D6A84B' },
+              { label: 'Bookings', value: stats.totalBookings ?? 0, color: '#A78BFA' },
             ].map((s) => (
               <View key={s.label} style={[styles.statCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
                 <Text style={[styles.statValue, { color: s.color }]}>{s.value}</Text>

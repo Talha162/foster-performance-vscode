@@ -3,7 +3,7 @@
  *
  * Combines health & fitness metrics into a single 0–100 score.
  * The score calculation weights are designed to be admin-configurable
- * (stored in AsyncStorage under FP_SCORE_CONFIG so they can be updated
+ * (stored in Supabase platform settings so they can be updated
  * via an admin push without requiring users to reinstall the app).
  */
 
