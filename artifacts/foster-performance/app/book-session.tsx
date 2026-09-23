@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -7,18 +7,21 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialCommunityIcons, Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import * as Linking from 'expo-linking';
+import * as WebBrowser from 'expo-web-browser';
 import { useColors } from '@/hooks/useColors';
 import { BackgroundLayer } from '@/components/BackgroundLayer';
 import { ScreenState } from '@/components/ScreenState';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
+import { fetchCoach } from '@/lib/coachRepository';
+import { supabase } from '@/lib/supabase';
 
 const TIME_SLOTS = [
   '9:00 AM', '10:00 AM', '11:00 AM',
@@ -46,10 +49,14 @@ function getNextDays(n: number) {
 const NEXT_DAYS = getNextDays(7);
 
 /** Derive the API base URL from the Expo public domain env var. */
-function getApiBase(): string {
-  const domain = process.env.EXPO_PUBLIC_DOMAIN;
-  if (domain) return `https://${domain}/api`;
-  return 'http://localhost:8080/api';
+function bookingStart(date: string, time: string) {
+  const match = time.match(/^(\d{1,2}):(\d{2})\s+(AM|PM)$/i);
+  if (!match) throw new Error('Invalid session time.');
+  let hour = Number(match[1]) % 12;
+  if (match[3].toUpperCase() === 'PM') hour += 12;
+  const start = new Date(`${date}T00:00:00`);
+  start.setHours(hour, Number(match[2]), 0, 0);
+  return start;
 }
 
 export default function BookSessionScreen() {
@@ -59,8 +66,8 @@ export default function BookSessionScreen() {
     coachId: string;
     sessionLength?: string;
   }>();
-  const { coaches, addBooking } = useApp();
-  const { user, token } = useAuth();
+  const { coaches } = useApp();
+  const { user } = useAuth();
 
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
   const botPad = Platform.OS === 'web' ? 34 : insets.bottom;
@@ -68,18 +75,15 @@ export default function BookSessionScreen() {
   // Try AppContext coaches first; if not found and id is "api_N", fetch from API.
   const localCoach = coaches.find((c) => c.id === coachId);
   const [apiCoach, setApiCoach] = useState<any>(null);
-  const [coachLoading, setCoachLoading] = useState(!localCoach && !!coachId?.startsWith('api_'));
+  const [coachLoading, setCoachLoading] = useState(!localCoach && !!coachId);
 
   useEffect(() => {
-    if (localCoach || !coachId?.startsWith('api_')) return;
+    if (localCoach || !coachId) return;
     (async () => {
       setCoachLoading(true);
       try {
-        const numericId = coachId.replace('api_', '');
-        const resp = await fetch(`${getApiBase()}/coaches/${numericId}`);
-        const data = await resp.json().catch(() => ({}));
+        const c = await fetchCoach(coachId);
         // GET /coaches/:id returns { coach: formatCoach(row) } — normalised already
-        const c = data.coach;
         if (c && c.name) {
           const name = c.name as string;
           const initials = name
@@ -89,15 +93,13 @@ export default function BookSessionScreen() {
             .slice(0, 2)
             .toUpperCase();
           // Deterministic colour from numeric application id
-          const palette = ['#2F80FF', '#9B59B6', '#27AE60', '#E67E22', '#E74C3C', '#1ABC9C'];
-          const color = palette[Number(numericId) % palette.length];
+          const color = c.color;
           // prices is already a parsed object: { session30: number|null, session60: number|null }
           // Null means the coach hasn't priced that length — keep as null so the UI can hide it.
-          const prices = c.prices ?? {};
-          const s30: number | null = typeof prices.session30 === 'number' ? prices.session30 : null;
-          const s60: number | null = typeof prices.session60 === 'number' ? prices.session60 : null;
+          const s30: number | null = c.session30Price;
+          const s60: number | null = c.session60Price;
           // weeklyAvailability is normalised by formatCoach to { days, activeTimes, sessionDurationMins }
-          const weeklyAvailability = c.weeklyAvailability ?? { days: {}, activeTimes: {} };
+          const weeklyAvailability = { days: Object.fromEntries((c.availability ?? []).map((day: string) => [day, true])), activeTimes: {} };
           setApiCoach({ id: coachId, name, initials, color, session30Price: s30, session60Price: s60, weeklyAvailability });
         }
       } catch { /* will fall through to null coach */ }
@@ -134,10 +136,6 @@ export default function BookSessionScreen() {
   );
   const [selectedDate, setSelectedDate] = useState(NEXT_DAYS[0].value);
   const [selectedTime, setSelectedTime] = useState('');
-  const [cardNumber, setCardNumber] = useState('');
-  const [cardName, setCardName] = useState('');
-  const [expiry, setExpiry] = useState('');
-  const [cvv, setCvv] = useState('');
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -147,12 +145,6 @@ export default function BookSessionScreen() {
       setSelectedTime('');
     }
   }, [filteredDays, selectedDate]);
-
-  // Stable idempotency key per booking attempt — generated once, reused on tap.
-  // Prevents double charges if the user taps twice or a retry fires.
-  const idempotencyKeyRef = useRef<string>(
-    `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
-  );
 
   if (coachLoading) {
     return <ScreenState title="Loading coach" message="Checking this coach's availability…" loading />;
@@ -178,10 +170,6 @@ export default function BookSessionScreen() {
   const validate = () => {
     const e: Record<string, string> = {};
     if (!selectedTime) e.time = 'Please select a time slot';
-    if (cardNumber.replace(/\s/g, '').length < 16) e.card = 'Enter a valid 16-digit card number';
-    if (!cardName.trim()) e.name = 'Enter the name on your card';
-    if (expiry.length < 5) e.expiry = 'Enter a valid expiry (MM/YY)';
-    if (cvv.length < 3) e.cvv = 'Enter a valid CVV';
     setErrors(e);
     return Object.keys(e).length === 0;
   };
@@ -192,64 +180,21 @@ export default function BookSessionScreen() {
     setLoading(true);
 
     try {
-      const response = await fetch(`${getApiBase()}/bookings`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({
+      const returnUrl = Linking.createURL('/session-confirmation');
+      const { data, error: billingError } = await supabase.functions.invoke('billing', {
+        body: {
+          action: 'create-booking-checkout',
           coachId: coach.id,
-          coachName: coach.name,
-          coachInitials: coach.initials,
-          coachColor: coach.color,
           sessionLength,
-          price,
-          date: selectedDate,
-          time: selectedTime,
-          cardNumber: cardNumber.replace(/\s/g, ''),
-          cardExpiry: expiry,
-          cardCvc: cvv,
-          cardName: cardName.trim(),
-          athleteEmail: user?.email ?? undefined,
-          athleteName: user?.name ?? undefined,
-          idempotencyKey: idempotencyKeyRef.current,
-        }),
+          startsAt: bookingStart(selectedDate, selectedTime).toISOString(),
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+          returnUrl,
+        },
       });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        // Explicit, non-silent failure — show the real error to the user.
-        const message = data.error ?? 'Payment failed. Please try again.';
-        Alert.alert('Payment Failed', message, [{ text: 'OK' }]);
-        // Only rotate the idempotency key when the server confirms it is safe to retry.
-        // When retryable === false (e.g. a `processing` intent that may still settle),
-        // keep the same key so a future retry hits the same Stripe PaymentIntent.
-        if (data.retryable !== false) {
-          idempotencyKeyRef.current = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-        }
-        setLoading(false);
-        return;
-      }
-
-      // Payment succeeded — save locally + navigate to confirmation
-      await addBooking({
-        coachId: coach.id,
-        coachName: coach.name,
-        coachInitials: coach.initials,
-        coachColor: coach.color,
-        sessionLength,
-        price,
-        date: selectedDate,
-        time: selectedTime,
-        status: 'upcoming',
-        // Store the server-assigned DB ID and cancellation token so the cancel
-        // endpoint can be called later. The token acts as a per-booking bearer
-        // credential required to authorize the refund.
-        serverId: data.bookingId ?? undefined,
-        cancellationToken: data.cancellationToken ?? undefined,
-      });
+      if (billingError) throw billingError;
+      if (!data?.checkoutUrl) throw new Error('Secure checkout is unavailable.');
+      const checkout = await WebBrowser.openAuthSessionAsync(data.checkoutUrl, returnUrl);
+      if (checkout.type !== 'success') return;
 
       setLoading(false);
       router.replace({
@@ -267,9 +212,9 @@ export default function BookSessionScreen() {
           time: selectedTime,
           bookingId: data.bookingId ?? '',
           // Only show email confirmation badge if the server confirmed delivery
-          emailSent: data.emailSent ? '1' : '0',
+          emailSent: '0',
           athleteEmail: user?.email ?? '',
-          persistenceError: data.persistenceError ?? '',
+          persistenceError: '',
         },
       });
     } catch (err: any) {
@@ -281,17 +226,6 @@ export default function BookSessionScreen() {
         [{ text: 'OK' }]
       );
     }
-  };
-
-  const formatCard = (val: string) => {
-    const digits = val.replace(/\D/g, '').slice(0, 16);
-    return digits.replace(/(.{4})/g, '$1 ').trim();
-  };
-
-  const formatExpiry = (val: string) => {
-    const digits = val.replace(/\D/g, '').slice(0, 4);
-    if (digits.length >= 3) return `${digits.slice(0, 2)}/${digits.slice(2)}`;
-    return digits;
   };
 
   return (
@@ -461,88 +395,13 @@ export default function BookSessionScreen() {
         )}
 
         {/* Payment */}
-        <SectionLabel label="Payment" />
+        <SectionLabel label="Secure Payment" />
         <View style={[styles.payCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <View style={styles.payHeader}>
-            <MaterialCommunityIcons name="credit-card" size={18} color={colors.mutedForeground} />
-            <Text style={[styles.payHeaderText, { color: colors.foreground }]}>Card Details</Text>
-            <View style={styles.cardLogos}>
-              {['visa', 'mastercard'].map((b) => (
-                <View key={b} style={[styles.cardLogo, { backgroundColor: colors.muted }]}>
-                  <Text style={[styles.cardLogoText, { color: colors.mutedForeground }]}>{b.toUpperCase().slice(0, 4)}</Text>
-                </View>
-              ))}
-            </View>
-          </View>
-
-          <View style={[styles.inputWrap, { borderColor: errors.card ? '#EF4444' : colors.border }]}>
-            <MaterialCommunityIcons name="credit-card-outline" size={16} color={colors.mutedForeground} />
-            <TextInput
-              style={[styles.input, { color: colors.foreground }]}
-              placeholder="Card number"
-              placeholderTextColor={colors.mutedForeground}
-              keyboardType="numeric"
-              value={cardNumber}
-              onChangeText={(t) => {
-                setCardNumber(formatCard(t));
-                setErrors((e) => ({ ...e, card: '' }));
-              }}
-              maxLength={19}
-            />
-          </View>
-          {errors.card && <Text style={[styles.errorText, { color: '#EF4444' }]}>{errors.card}</Text>}
-
-          <View style={[styles.inputWrap, { borderColor: errors.name ? '#EF4444' : colors.border }]}>
-            <MaterialCommunityIcons name="account-outline" size={16} color={colors.mutedForeground} />
-            <TextInput
-              style={[styles.input, { color: colors.foreground }]}
-              placeholder="Name on card"
-              placeholderTextColor={colors.mutedForeground}
-              autoCapitalize="words"
-              value={cardName}
-              onChangeText={(t) => {
-                setCardName(t);
-                setErrors((e) => ({ ...e, name: '' }));
-              }}
-            />
-          </View>
-          {errors.name && <Text style={[styles.errorText, { color: '#EF4444' }]}>{errors.name}</Text>}
-
-          <View style={styles.rowInputs}>
-            <View style={{ flex: 1, gap: 4 }}>
-              <View style={[styles.inputWrap, { borderColor: errors.expiry ? '#EF4444' : colors.border }]}>
-                <TextInput
-                  style={[styles.input, { color: colors.foreground }]}
-                  placeholder="MM/YY"
-                  placeholderTextColor={colors.mutedForeground}
-                  keyboardType="numeric"
-                  value={expiry}
-                  onChangeText={(t) => {
-                    setExpiry(formatExpiry(t));
-                    setErrors((e) => ({ ...e, expiry: '' }));
-                  }}
-                  maxLength={5}
-                />
-              </View>
-              {errors.expiry && <Text style={[styles.errorText, { color: '#EF4444' }]}>{errors.expiry}</Text>}
-            </View>
-            <View style={{ flex: 1, gap: 4 }}>
-              <View style={[styles.inputWrap, { borderColor: errors.cvv ? '#EF4444' : colors.border }]}>
-                <TextInput
-                  style={[styles.input, { color: colors.foreground }]}
-                  placeholder="CVV"
-                  placeholderTextColor={colors.mutedForeground}
-                  keyboardType="numeric"
-                  secureTextEntry
-                  value={cvv}
-                  onChangeText={(t) => {
-                    setCvv(t.replace(/\D/g, '').slice(0, 4));
-                    setErrors((e) => ({ ...e, cvv: '' }));
-                  }}
-                  maxLength={4}
-                />
-              </View>
-              {errors.cvv && <Text style={[styles.errorText, { color: '#EF4444' }]}>{errors.cvv}</Text>}
+            <MaterialCommunityIcons name="shield-lock" size={22} color={colors.success} />
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.payHeaderText, { color: colors.foreground }]}>Stripe Checkout</Text>
+              <Text style={[styles.secureNoteText, { color: colors.mutedForeground }]}>Your card details are entered securely on Stripe after you confirm.</Text>
             </View>
           </View>
         </View>

@@ -23,12 +23,9 @@ import * as Haptics from 'expo-haptics';
 import { useColors } from '@/hooks/useColors';
 import { BackgroundLayer } from '@/components/BackgroundLayer';
 import { useAuth } from '@/context/AuthContext';
-
-function getApiBase() {
-  const domain = process.env.EXPO_PUBLIC_DOMAIN;
-  if (domain) return `https://${domain}/api`;
-  return 'http://localhost:8080/api';
-}
+import * as Linking from 'expo-linking';
+import * as WebBrowser from 'expo-web-browser';
+import { supabase } from '@/lib/supabase';
 
 const PLANS = [
   {
@@ -61,7 +58,7 @@ const FEATURES = [
 export default function CoachSubscriptionScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { token } = useAuth();
+  useAuth();
 
   const [plan, setPlan] = useState<'monthly' | 'annual'>('annual');
   const [loading, setLoading] = useState(false);
@@ -77,23 +74,17 @@ export default function CoachSubscriptionScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
     setLoading(true);
     try {
-      const key = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-      const resp = await fetch(`${getApiBase()}/coach-subscriptions/create`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ plan, idempotencyKey: key }),
+      const returnUrl = Linking.createURL('/coach-billing-settings');
+      const { data, error } = await supabase.functions.invoke('billing', {
+        body: { action: 'create-coach-checkout', plan, returnUrl },
       });
-      const data = await resp.json();
-      if (!resp.ok) {
-        Alert.alert('Activation Failed', data.error ?? 'Please try again.', [{ text: 'OK' }]);
-        return;
-      }
+      if (error) throw error;
+      if (!data?.checkoutUrl) throw new Error('Secure checkout is unavailable.');
+      const result = await WebBrowser.openAuthSessionAsync(data.checkoutUrl, returnUrl);
+      if (result.type !== 'success') return;
       Alert.alert(
-        'Subscription Active!',
-        `Your ${plan} coach subscription is now active in test mode. Your profile is live in the marketplace.`,
+        'Payment Received',
+        `Your ${plan} coach subscription is being activated. Your dashboard will update as soon as Stripe confirms payment.`,
         [{ text: 'Go to Dashboard', onPress: () => router.replace('/(coach-tabs)') }]
       );
     } catch {

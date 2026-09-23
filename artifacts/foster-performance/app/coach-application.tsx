@@ -11,10 +11,10 @@ import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useColors } from '@/hooks/useColors';
 import { BackgroundLayer } from '@/components/BackgroundLayer';
 import { useAuth } from '@/context/AuthContext';
+import { supabase } from '@/lib/supabase';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -170,36 +170,30 @@ const STEP_TITLES = [
 export default function CoachApplicationScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { user, token } = useAuth();
+  const { user } = useAuth();
 
   const [step, setStep] = useState(0);
   const [form, setForm] = useState<AppForm>(INITIAL);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  // When entering Step 1 (About You), pre-populate certifications from the
-  // credential-upload screen's AsyncStorage if the field is currently empty.
+  // When entering Step 1, pre-populate certifications saved in Supabase.
   useEffect(() => {
-    if (step !== 1) return;
-    AsyncStorage.getItem('@coach_credentials').then((raw) => {
-      if (!raw) return;
+    if (step !== 1 || !user) return;
+    supabase.from('coach_applications').select('certifications').eq('user_id', user.id).maybeSingle().then(({ data }) => {
       try {
-        const entries: { name: string }[] = JSON.parse(raw);
+        const entries = Array.isArray(data?.certifications) ? data.certifications as Array<string | { name: string }> : [];
         if (entries.length === 0) return;
         setForm((f) => {
-          // Don't overwrite if the user already typed something
           if (f.certifications.trim()) return f;
-          return { ...f, certifications: entries.map((e) => e.name).join(', ') };
+          return { ...f, certifications: entries.map((entry) => typeof entry === 'string' ? entry : entry.name).join(', ') };
         });
       } catch {}
     });
-  }, [step]);
+  }, [step, user]);
 
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
   const botPad = Platform.OS === 'web' ? 34 : insets.bottom;
-
-  const getApiBase = () =>
-    process.env.EXPO_PUBLIC_API_BASE ?? `https://${process.env.EXPO_PUBLIC_DOMAIN}/api`;
 
   const set = (key: keyof AppForm, val: any) => setForm((f) => ({ ...f, [key]: val }));
   const toggleList = (key: 'specialties' | 'services', val: string) =>
@@ -231,20 +225,23 @@ export default function CoachApplicationScreen() {
     setLoading(true);
     setError('');
     try {
-      const resp = await fetch(`${getApiBase()}/coach-applications`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({
-          fullName: form.fullName || user?.name,
-          phone: form.phone,
-          professionalTitle: form.professionalTitle,
-          profilePhotoUrl: form.profilePhotoUrl,
+      if (!user) throw new Error('Authentication required');
+      const profileResult = await supabase.from('profiles').update({
+        full_name: form.fullName || user.name,
+        phone: form.phone,
+        avatar_url: form.profilePhotoUrl || null,
+      }).eq('id', user.id);
+      if (profileResult.error) throw new Error(profileResult.error.message);
+      const applicationResult = await supabase.from('coach_applications').upsert({
+          user_id: user.id,
+          professional_title: form.professionalTitle,
+          profile_photo_url: form.profilePhotoUrl,
           biography: form.biography,
-          experienceYears: form.experienceYears ? parseInt(form.experienceYears) : null,
-          certifications: form.certifications,
+          experience_years: form.experienceYears ? parseInt(form.experienceYears) : null,
+          certifications: form.certifications.split(/,\s*/).filter(Boolean),
           specialties: form.specialties,
           services: form.services,
-          sessionLengths: [
+          session_lengths: [
             ...(form.session30Price ? [30] : []),
             ...(form.session60Price ? [60] : []),
             ...(form.session90Price ? [90] : []),
@@ -254,20 +251,19 @@ export default function CoachApplicationScreen() {
             session60: form.session60Price ? parseFloat(form.session60Price) : null,
             session90: form.session90Price ? parseFloat(form.session90Price) : null,
           },
-          weeklyAvailability: {
+          weekly_availability: {
             monday: form.monday, tuesday: form.tuesday, wednesday: form.wednesday,
             thursday: form.thursday, friday: form.friday, saturday: form.saturday, sunday: form.sunday,
           },
-          virtualSessions: form.virtualSessions,
-          inPersonSessions: form.inPersonSessions,
-          serviceLocation: form.serviceLocation,
-          professionalLinks: { website: form.website, instagram: form.instagram, linkedin: form.linkedin },
-          agreedToTerms: true,
-          status: 'Submitted',
-        }),
-      });
-      const data = await resp.json();
-      if (!resp.ok) throw new Error(data.error || 'Submission failed');
+          virtual_sessions: form.virtualSessions,
+          in_person_sessions: form.inPersonSessions,
+          service_location: form.serviceLocation,
+          professional_links: { website: form.website, instagram: form.instagram, linkedin: form.linkedin },
+          agreed_to_terms: true,
+          status: 'submitted',
+          submitted_at: new Date().toISOString(),
+      }, { onConflict: 'user_id' });
+      if (applicationResult.error) throw new Error(applicationResult.error.message);
       router.replace('/coach-application-status');
     } catch (e: any) {
       setError(e.message || 'Submission failed. Please try again.');

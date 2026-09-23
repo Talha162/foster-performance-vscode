@@ -1,13 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Alert, Linking, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import { useColors } from '@/hooks/useColors';
 import { BackgroundLayer } from '@/components/BackgroundLayer';
-
-const NOTIFICATIONS_KEY = '@foster_notification_preferences';
+import { useAuth } from '@/context/AuthContext';
+import { supabase } from '@/lib/supabase';
 
 type Preferences = {
   workoutReminders: boolean;
@@ -32,24 +31,22 @@ const DEFAULT_PREFERENCES: Preferences = {
 export default function NotificationsScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
+  const { user } = useAuth();
   const [preferences, setPreferences] = useState<Preferences>(DEFAULT_PREFERENCES);
   const [permission, setPermission] = useState<'not-requested' | 'enabled' | 'denied'>('not-requested');
 
   useEffect(() => {
-    AsyncStorage.getItem(NOTIFICATIONS_KEY).then((saved) => {
-      if (!saved) return;
-      try {
-        setPreferences({ ...DEFAULT_PREFERENCES, ...JSON.parse(saved) });
-      } catch {
-        // Keep the safe defaults when stored preferences are malformed.
-      }
-    });
-  }, []);
+    if (!user) return;
+    supabase.from('user_app_state').select('notification_preferences').eq('user_id', user.id).maybeSingle()
+      .then(({ data }) => {
+        if (data?.notification_preferences) setPreferences({ ...DEFAULT_PREFERENCES, ...data.notification_preferences });
+      });
+  }, [user]);
 
   const toggle = (key: keyof Preferences) => {
     setPreferences((current) => {
       const next = { ...current, [key]: !current[key] };
-      AsyncStorage.setItem(NOTIFICATIONS_KEY, JSON.stringify(next));
+      if (user) supabase.from('user_app_state').upsert({ user_id: user.id, notification_preferences: next }).then();
       return next;
     });
   };

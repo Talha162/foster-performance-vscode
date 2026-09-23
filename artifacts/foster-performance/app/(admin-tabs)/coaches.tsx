@@ -7,42 +7,35 @@ import * as Haptics from 'expo-haptics';
 import { useColors } from '@/hooks/useColors';
 import { BackgroundLayer } from '@/components/BackgroundLayer';
 import { useAuth } from '@/context/AuthContext';
+import { supabase } from '@/lib/supabase';
 
 export default function AdminCoaches() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { token } = useAuth();
+  useAuth();
   const [coaches, setCoaches] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
   const botPad = Platform.OS === 'web' ? 34 : insets.bottom;
 
-  const getApiBase = () =>
-    process.env.EXPO_PUBLIC_API_BASE ?? `https://${process.env.EXPO_PUBLIC_DOMAIN}/api`;
-
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const resp = await fetch(`${getApiBase()}/admin/users?role=coach`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await resp.json().catch(() => ({}));
-      setCoaches(Array.isArray(data.users) ? data.users : []);
+      const { data, error } = await supabase.from('profiles').select('*').eq('role', 'coach').order('created_at', { ascending: false });
+      if (error) throw error;
+      setCoaches((data ?? []).map((profile: any) => ({ ...profile, name: profile.full_name })));
     } catch { setCoaches([]); }
     finally { setLoading(false); }
-  }, [token]);
+  }, []);
 
   useEffect(() => { load(); }, [load]);
 
-  const handleSuspend = async (userId: number, name: string) => {
+  const handleSuspend = async (userId: string, name: string) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
     try {
-      await fetch(`${getApiBase()}/admin/users/${userId}/role`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ role: 'member' }),
-      });
+      const { error } = await supabase.from('profiles').update({ is_suspended: true }).eq('id', userId);
+      if (error) throw error;
       await load();
     } catch {}
   };

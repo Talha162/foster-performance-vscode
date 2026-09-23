@@ -5,7 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useColors } from '@/hooks/useColors';
 import { BackgroundLayer } from '@/components/BackgroundLayer';
-import { useAuth } from '@/context/AuthContext';
+import { fetchBookings } from '@/lib/coachRepository';
 
 const STATUS_COLORS: Record<string, string> = {
   upcoming: '#2F80FF',
@@ -16,7 +16,6 @@ const STATUS_COLORS: Record<string, string> = {
 export default function AdminBookings() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { token } = useAuth();
   const [bookings, setBookings] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('all');
@@ -24,20 +23,13 @@ export default function AdminBookings() {
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
   const botPad = Platform.OS === 'web' ? 34 : insets.bottom;
 
-  const getApiBase = () =>
-    process.env.EXPO_PUBLIC_API_BASE ?? `https://${process.env.EXPO_PUBLIC_DOMAIN}/api`;
-
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const resp = await fetch(`${getApiBase()}/admin/bookings`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await resp.json().catch(() => ({}));
-      setBookings(Array.isArray(data.bookings) ? data.bookings : []);
+      setBookings(await fetchBookings());
     } catch { setBookings([]); }
     finally { setLoading(false); }
-  }, [token]);
+  }, []);
 
   useEffect(() => { load(); }, [load]);
 
@@ -80,7 +72,7 @@ export default function AdminBookings() {
           </View>
         ) : (
           filtered.map((b, i) => {
-            const price = (b.price ?? 0) / 100;
+            const price = b.price ?? 0;
             const sc = STATUS_COLORS[b.status] ?? colors.border;
             return (
               <View key={i} style={[styles.bookingCard, { backgroundColor: colors.card, borderColor: colors.border }]}>

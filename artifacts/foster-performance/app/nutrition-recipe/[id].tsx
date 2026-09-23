@@ -10,8 +10,7 @@ import * as Haptics from 'expo-haptics';
 import { useColors } from '@/hooks/useColors';
 import { BackgroundLayer } from '@/components/BackgroundLayer';
 import { useNutrition, Recipe } from '@/context/NutritionContext';
-
-const API_BASE = process.env.EXPO_PUBLIC_API_URL ?? '';
+import { supabase } from '@/lib/supabase';
 
 const CATEGORY_COLORS: Record<string, string> = {
   Breakfast: '#F59E0B', Lunch: '#3B82F6', Dinner: '#8B5CF6',
@@ -36,14 +35,18 @@ export default function RecipeDetailScreen() {
   useEffect(() => {
     if (!id) return;
     setLoading(true);
-    fetch(`${API_BASE}/api/nutrition/recipes/${id}`)
-      .then((r) => r.json())
-      .then((data) => {
-        if (data.error) setError(data.error);
-        else setRecipe(data);
-      })
-      .catch(() => setError('Failed to load recipe'))
-      .finally(() => setLoading(false));
+    (async () => {
+      try {
+        const { data, error: queryError } = await supabase.from('recipes').select('*').eq('id', id).eq('is_published', true).maybeSingle();
+        if (queryError) setError(queryError.message);
+        else if (!data) setError('Recipe not found');
+        else setRecipe({ ...data, storage: data.storage_notes, reheat: data.reheat_notes } as Recipe);
+      } catch {
+        setError('Failed to load recipe');
+      } finally {
+        setLoading(false);
+      }
+    })();
   }, [id]);
 
   const handleSave = () => {

@@ -75,7 +75,7 @@ export default function BecomeCoachIntroScreen() {
     setError('');
     try {
       // becomeCoach atomically calls POST /auth/become-coach, stores the new JWT
-      // in AsyncStorage, and updates in-memory token + user state in AuthContext.
+      // in Supabase Auth, and updates in-memory session + user state in AuthContext.
       await becomeCoach();
       router.replace('/coach-application');
     } catch (e: any) {

@@ -18,6 +18,7 @@ import * as Haptics from 'expo-haptics';
 import { useColors } from '@/hooks/useColors';
 import { BackgroundLayer } from '@/components/BackgroundLayer';
 import { useAuth } from '@/context/AuthContext';
+import { supabase } from '@/lib/supabase';
 
 const SUB_STATUS_LABELS: Record<string, { label: string; color: string }> = {
   active:   { label: 'Active',   color: '#35C98A' },
@@ -31,7 +32,7 @@ const SUB_STATUS_LABELS: Record<string, { label: string; color: string }> = {
 export default function AdminMembers() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { token } = useAuth();
+  useAuth();
   const [users, setUsers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -42,26 +43,20 @@ export default function AdminMembers() {
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
   const botPad = Platform.OS === 'web' ? 34 : insets.bottom;
 
-  const getApiBase = () =>
-    process.env.EXPO_PUBLIC_API_BASE ?? `https://${process.env.EXPO_PUBLIC_DOMAIN}/api`;
-
   const load = useCallback(async () => {
     setLoading(true);
     setLoadError(null);
     try {
-      const resp = await fetch(`${getApiBase()}/admin/users?role=member`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await resp.json().catch(() => ({}));
-      if (!resp.ok) throw new Error(data.error || 'Could not load members');
-      setUsers(Array.isArray(data.users) ? data.users : []);
+      const { data, error } = await supabase.from('profiles').select('*').eq('role', 'member').order('created_at', { ascending: false });
+      if (error) throw error;
+      setUsers((data ?? []).map((profile: any) => ({ ...profile, name: profile.full_name, account_type: profile.role })));
     } catch {
       setUsers([]);
       setLoadError('We could not load the member directory. Check your connection and try again.');
     } finally {
       setLoading(false);
     }
-  }, [token]);
+  }, []);
 
   useEffect(() => { load(); }, [load]);
 
@@ -88,11 +83,11 @@ export default function AdminMembers() {
           onPress: async () => {
             setActing(true);
             try {
-              await fetch(`${getApiBase()}/admin/users/${u.id}/suspend`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-                body: JSON.stringify({ suspend: willSuspend }),
-              });
+              const { error } = await supabase.from('profiles').update({
+                is_suspended: willSuspend,
+                ...(willSuspend ? { is_premium: false } : {}),
+              }).eq('id', u.id);
+              if (error) throw error;
               setSelected(null);
               await load();
             } catch {}

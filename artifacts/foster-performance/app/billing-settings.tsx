@@ -18,8 +18,6 @@ import { BackgroundLayer } from '@/components/BackgroundLayer';
 import { useAuth } from '@/context/AuthContext';
 import type { SubscriptionStatus } from '@/context/AuthContext';
 
-const API_BASE = process.env.EXPO_PUBLIC_API_BASE ?? `https://${process.env.EXPO_PUBLIC_DOMAIN}/api`;
-
 function statusColor(status: SubscriptionStatus | null, colors: ReturnType<typeof import('@/hooks/useColors').useColors>) {
   switch (status) {
     case 'active': return '#35C98A';
@@ -96,18 +94,6 @@ export default function BillingSettingsScreen() {
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
             setCancelling(true);
             try {
-              if (user?.stripeSubscriptionId) {
-                const resp = await fetch(`${API_BASE}/subscriptions/cancel`, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ subscriptionId: user.stripeSubscriptionId }),
-                });
-                if (!resp.ok) {
-                  const data = await resp.json();
-                  Alert.alert('Error', data.error ?? 'Could not cancel subscription. Please try again.');
-                  return;
-                }
-              }
               await cancelSubscription();
               Alert.alert(
                 'Membership Canceled',

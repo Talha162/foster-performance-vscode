@@ -1,10 +1,50 @@
 import React, { useState } from 'react';
-import { Platform, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, Platform, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useColors } from '@/hooks/useColors';
 import { BackgroundLayer } from '@/components/BackgroundLayer';
 import { AppButton } from '@/components/AppButton';
-import { InfoRow, MockNotice, PageHeader, SectionCard, StatusPill } from '@/components/ProductUI';
+import { InfoRow, PageHeader, SectionCard } from '@/components/ProductUI';
 import { radii, spacing, typography } from '@/constants/colors';
-export default function DeleteAccount(){const colors=useColors();const insets=useSafeAreaInsets();const [confirm,setConfirm]=useState('');const [submitted,setSubmitted]=useState(false);return <View style={[styles.root,{backgroundColor:colors.background,paddingTop:Platform.OS==='web'?40:insets.top}]}><BackgroundLayer/><PageHeader title="Delete Account" subtitle="Permanent account and data request"/><ScrollView contentContainerStyle={[styles.content,{paddingBottom:insets.bottom+24}]}>{submitted?<SectionCard title="Deletion request submitted" subtitle="You can cancel during the policy-defined review period from this screen once the backend is connected."><StatusPill label="Pending review" tone="warning"/><InfoRow icon="identifier" label="Reference" value="DEL-PREVIEW-2026"/><AppButton label="Cancel Request (Preview)" variant="secondary" onPress={()=>setSubmitted(false)}/></SectionCard>:<><SectionCard title="Before you continue"><InfoRow icon="dumbbell" label="Training and progress" value="Workout history and locally stored progress may be removed"/><InfoRow icon="message-outline" label="Messages and bookings" value="Records may be retained where required for safety, payments or law"/><InfoRow icon="crown-outline" label="Subscription" value="Active subscriptions must be cancelled through the applicable provider"/></SectionCard><SectionCard title="Confirm deletion request" subtitle="Re-authentication/password confirmation will be required in production."><Text style={[styles.label,{color:colors.foreground}]}>Type DELETE to continue</Text><TextInput value={confirm} onChangeText={setConfirm} autoCapitalize="characters" placeholder="DELETE" placeholderTextColor={colors.mutedForeground} style={[styles.input,{color:colors.foreground,backgroundColor:colors.muted,borderColor:colors.border}]} accessibilityLabel="Type DELETE to confirm"/><AppButton label="Submit Deletion Request" variant="danger" disabled={confirm!=='DELETE'} onPress={()=>setSubmitted(true)}/></SectionCard></>}<MockNotice>Deletion, cancellation window, re-authentication, legal retention and status persistence require Milestone 2 and approved policy.</MockNotice></ScrollView></View>}
-const styles=StyleSheet.create({root:{flex:1},content:{padding:spacing.md,gap:spacing.md},label:{...typography.label},input:{height:52,borderWidth:1,borderRadius:radii.md,paddingHorizontal:spacing.md,...typography.body}});
+import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/context/AuthContext';
+
+export default function DeleteAccount() {
+  const colors = useColors();
+  const insets = useSafeAreaInsets();
+  const { logout } = useAuth();
+  const [confirm, setConfirm] = useState('');
+  const [deleting, setDeleting] = useState(false);
+
+  const deleteAccount = async () => {
+    setDeleting(true);
+    const { error } = await supabase.functions.invoke('delete-account', { body: { confirmation: confirm } });
+    if (error) {
+      setDeleting(false);
+      Alert.alert('Deletion failed', error.message);
+      return;
+    }
+    await logout().catch(() => undefined);
+    router.replace('/(auth)/welcome');
+  };
+
+  return <View style={[styles.root, { backgroundColor: colors.background, paddingTop: Platform.OS === 'web' ? 40 : insets.top }]}>
+    <BackgroundLayer />
+    <PageHeader title="Delete Account" subtitle="Permanent account and data deletion" />
+    <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 24 }]}>
+      <SectionCard title="Before you continue">
+        <InfoRow icon="dumbbell" label="Training and progress" value="Your workout, nutrition, and progress data will be permanently removed" />
+        <InfoRow icon="message-outline" label="Messages and bookings" value="Records linked to your account will be deleted according to database retention rules" />
+        <InfoRow icon="crown-outline" label="Subscription" value="Cancel active paid subscriptions before deleting your account" />
+      </SectionCard>
+      <SectionCard title="Confirm permanent deletion" subtitle="This action cannot be undone. Type DELETE to continue.">
+        <Text style={[styles.label, { color: colors.foreground }]}>Confirmation</Text>
+        <TextInput value={confirm} onChangeText={setConfirm} autoCapitalize="characters" placeholder="DELETE" placeholderTextColor={colors.mutedForeground} style={[styles.input, { color: colors.foreground, backgroundColor: colors.muted, borderColor: colors.border }]} accessibilityLabel="Type DELETE to confirm" />
+        <AppButton label={deleting ? 'Deleting…' : 'Permanently Delete Account'} variant="danger" disabled={confirm !== 'DELETE' || deleting} onPress={deleteAccount} />
+      </SectionCard>
+    </ScrollView>
+  </View>;
+}
+
+const styles = StyleSheet.create({ root: { flex: 1 }, content: { padding: spacing.md, gap: spacing.md }, label: { ...typography.label }, input: { height: 52, borderWidth: 1, borderRadius: radii.md, paddingHorizontal: spacing.md, ...typography.body } });

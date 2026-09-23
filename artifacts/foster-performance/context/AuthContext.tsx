@@ -241,7 +241,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const forgotPassword = useCallback(async (email: string) => {
     const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
-      redirectTo: 'fosterperformance://reset-password',
+      redirectTo: 'foster-performance://reset-password',
     });
     if (error) throw new Error(error.message);
     return 'Check your email for the password recovery code.';

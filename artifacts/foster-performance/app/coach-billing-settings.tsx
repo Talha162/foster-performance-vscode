@@ -15,17 +15,12 @@ import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useColors } from '@/hooks/useColors';
 import { BackgroundLayer } from '@/components/BackgroundLayer';
 import { useAuth } from '@/context/AuthContext';
-
-function getApiBase() {
-  const domain = process.env.EXPO_PUBLIC_DOMAIN;
-  if (domain) return `https://${domain}/api`;
-  return 'http://localhost:8080/api';
-}
+import { supabase } from '@/lib/supabase';
 
 export default function CoachBillingSettings() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { token } = useAuth();
+  useAuth();
 
   const [status, setStatus] = useState<{ status: string; plan: string | null } | null>(null);
   const [loading, setLoading] = useState(true);
@@ -37,11 +32,13 @@ export default function CoachBillingSettings() {
   useEffect(() => {
     (async () => {
       try {
-        const resp = await fetch(`${getApiBase()}/coach-subscriptions/status`, {
-          headers: { Authorization: `Bearer ${token}` },
+        const { data, error } = await supabase.functions.invoke('billing', {
+          body: { action: 'get-status', productType: 'coach_pro' },
         });
-        const data = await resp.json().catch(() => ({}));
-        setStatus(data);
+        if (error) throw error;
+        setStatus(data?.subscription
+          ? { status: data.subscription.status, plan: data.subscription.plan }
+          : { status: 'none', plan: null });
       } catch {
         setStatus({ status: 'none', plan: null });
       } finally {
@@ -62,10 +59,10 @@ export default function CoachBillingSettings() {
           onPress: async () => {
             setCancelling(true);
             try {
-              await fetch(`${getApiBase()}/coach-subscriptions/cancel`, {
-                method: 'POST',
-                headers: { Authorization: `Bearer ${token}` },
+              const { error } = await supabase.functions.invoke('billing', {
+                body: { action: 'cancel-coach-subscription' },
               });
+              if (error) throw error;
               setStatus((prev) => prev ? { ...prev, status: 'cancelled' } : prev);
             } catch {
               Alert.alert('Error', 'Could not cancel subscription. Please try again.');

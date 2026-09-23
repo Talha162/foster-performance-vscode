@@ -7,6 +7,7 @@ import * as Haptics from 'expo-haptics';
 import { useColors } from '@/hooks/useColors';
 import { BackgroundLayer } from '@/components/BackgroundLayer';
 import { useAuth } from '@/context/AuthContext';
+import { supabase } from '@/lib/supabase';
 
 const STATUS_COLORS: Record<string, string> = {
   Incomplete: '#9AA3B5', Submitted: '#2F80FF', 'Pending Review': '#D6A84B',
@@ -19,7 +20,7 @@ const STATUSES = ['Pending Review', 'More Information Required', 'Approved', 'Re
 export default function AdminApplications() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { token } = useAuth();
+  useAuth();
   const [apps, setApps] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<any>(null);
@@ -31,20 +32,30 @@ export default function AdminApplications() {
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
   const botPad = Platform.OS === 'web' ? 34 : insets.bottom;
 
-  const getApiBase = () =>
-    process.env.EXPO_PUBLIC_API_BASE ?? `https://${process.env.EXPO_PUBLIC_DOMAIN}/api`;
-
   const loadApps = useCallback(async () => {
     setLoading(true);
     try {
-      const resp = await fetch(`${getApiBase()}/admin/applications`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await resp.json().catch(() => ({}));
-      setApps(Array.isArray(data.applications) ? data.applications : []);
+      const { data, error } = await supabase.from('coach_applications').select(`
+        *, profile:profiles!coach_applications_user_id_fkey(full_name, email)
+      `).order('created_at', { ascending: false });
+      if (error) throw error;
+      const statusLabels: Record<string, string> = {
+        incomplete: 'Incomplete', submitted: 'Submitted', under_review: 'Pending Review',
+        approved: 'Approved', rejected: 'Rejected',
+      };
+      setApps((data ?? []).map((app: any) => ({
+        ...app,
+        fullName: app.profile?.full_name,
+        userEmail: app.profile?.email,
+        professionalTitle: app.professional_title,
+        biography: app.biography,
+        adminNotes: app.admin_notes,
+        submittedAt: app.submitted_at,
+        status: statusLabels[app.status] ?? app.status,
+      })));
     } catch { setApps([]); }
     finally { setLoading(false); }
-  }, [token]);
+  }, []);
 
   useEffect(() => { loadApps(); }, [loadApps]);
 
@@ -53,16 +64,15 @@ export default function AdminApplications() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setUpdating(true);
     try {
-      const resp = await fetch(`${getApiBase()}/admin/applications/${selected.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ status: newStatus, adminNotes: notes || undefined }),
+      const { error } = await supabase.rpc('review_coach_application', {
+        p_application_id: selected.id,
+        p_status: newStatus,
+        p_admin_notes: notes || null,
       });
-      if (resp.ok) {
-        setSelected(null);
-        setNotes('');
-        await loadApps();
-      }
+      if (error) throw error;
+      setSelected(null);
+      setNotes('');
+      await loadApps();
     } finally { setUpdating(false); }
   };
 

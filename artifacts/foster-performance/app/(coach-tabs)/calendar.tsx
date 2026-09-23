@@ -17,6 +17,7 @@ import { useColors } from '@/hooks/useColors';
 import { BackgroundLayer } from '@/components/BackgroundLayer';
 import { useAuth } from '@/context/AuthContext';
 import { MockNotice } from '@/components/ProductUI';
+import { supabase } from '@/lib/supabase';
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 const TIME_BLOCKS = [
@@ -25,16 +26,24 @@ const TIME_BLOCKS = [
   '6:00 PM', '7:00 PM', '8:00 PM',
 ];
 
-function getApiBase() {
-  const domain = process.env.EXPO_PUBLIC_DOMAIN;
-  if (domain) return `https://${domain}/api`;
-  return 'http://localhost:8080/api';
+function toDatabaseTime(label: string) {
+  const [clock, meridiem] = label.split(' ');
+  const [rawHour, minute] = clock.split(':').map(Number);
+  const hour = meridiem === 'PM' ? (rawHour % 12) + 12 : rawHour % 12;
+  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}:00`;
+}
+
+function toLabel(time: string) {
+  const [hourValue, minute] = time.split(':').map(Number);
+  const meridiem = hourValue >= 12 ? 'PM' : 'AM';
+  const hour = hourValue % 12 || 12;
+  return `${hour}:${String(minute).padStart(2, '0')} ${meridiem}`;
 }
 
 export default function CoachCalendar() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { token } = useAuth();
+  const { user } = useAuth();
 
   const defaultDays = Object.fromEntries(
     DAYS.map((d) => [d, ['Monday', 'Wednesday', 'Friday'].includes(d)])
@@ -62,37 +71,48 @@ export default function CoachCalendar() {
   useEffect(() => {
     (async () => {
       try {
-        const resp = await fetch(`${getApiBase()}/coaches/me/availability`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        const data = await resp.json().catch(() => ({}));
-        if (data.availability?.days) {
-          setDays(data.availability.days);
-        }
-        if (data.availability?.activeTimes) {
-          setActiveTimes(data.availability.activeTimes);
-        }
-        if (data.availability?.sessionDurationMins) {
-          setSessionDurationMins(data.availability.sessionDurationMins);
+        if (!user) return;
+        const { data, error } = await supabase.from('coach_availability').select('*').eq('coach_id', user.id).eq('is_active', true);
+        if (error) throw new Error(error.message);
+        if (data?.length) {
+          const loadedDays = Object.fromEntries(DAYS.map((day, index) => [day, data.some((slot) => slot.weekday === (index + 1) % 7)]));
+          const loadedTimes = Object.fromEntries(TIME_BLOCKS.map((time) => [time, data.some((slot) => toLabel(slot.start_time) === time)]));
+          setDays(loadedDays);
+          setActiveTimes(loadedTimes);
+          const first = data[0];
+          const duration = (new Date(`1970-01-01T${first.end_time}Z`).getTime() - new Date(`1970-01-01T${first.start_time}Z`).getTime()) / 60_000;
+          if (duration > 0) setSessionDurationMins(duration);
         }
       } catch { /* use defaults */ }
       finally { setLoading(false); }
     })();
-  }, []);
+  }, [user]);
 
   const handleSave = async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     setSaving(true);
     try {
-      const resp = await fetch(`${getApiBase()}/coaches/me/availability`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ days, activeTimes, sessionDurationMins }),
-      });
-      if (!resp.ok) throw new Error('Save failed');
+      if (!user) throw new Error('Authentication required');
+      const removed = await supabase.from('coach_availability').delete().eq('coach_id', user.id);
+      if (removed.error) throw new Error(removed.error.message);
+      const slots = DAYS.flatMap((day, index) => days[day]
+        ? TIME_BLOCKS.filter((time) => activeTimes[time]).map((time) => {
+            const start = toDatabaseTime(time);
+            const endDate = new Date(`1970-01-01T${start}Z`);
+            endDate.setUTCMinutes(endDate.getUTCMinutes() + sessionDurationMins);
+            return {
+              coach_id: user.id,
+              weekday: (index + 1) % 7,
+              start_time: start,
+              end_time: endDate.toISOString().slice(11, 19),
+              timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+            };
+          })
+        : []);
+      if (slots.length) {
+        const inserted = await supabase.from('coach_availability').insert(slots);
+        if (inserted.error) throw new Error(inserted.error.message);
+      }
       setSavedAt(new Date());
       setTimeout(() => setSavedAt(null), 3000);
     } catch {
