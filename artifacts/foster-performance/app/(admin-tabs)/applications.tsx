@@ -23,6 +23,7 @@ export default function AdminApplications() {
   useAuth();
   const [apps, setApps] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<any>(null);
   const [newStatus, setNewStatus] = useState('');
   const [notes, setNotes] = useState('');
@@ -34,6 +35,7 @@ export default function AdminApplications() {
 
   const loadApps = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       const { data, error } = await supabase.from('coach_applications').select(`
         *, profile:profiles!coach_applications_user_id_fkey(full_name, email)
@@ -53,7 +55,12 @@ export default function AdminApplications() {
         submittedAt: app.submitted_at,
         status: statusLabels[app.status] ?? app.status,
       })));
-    } catch { setApps([]); }
+    } catch (err: any) {
+      const errorMsg = err?.message || 'Failed to load applications';
+      console.error('[AdminApplications] Load error:', err);
+      setError(errorMsg);
+      setApps([]);
+    }
     finally { setLoading(false); }
   }, []);
 
@@ -107,7 +114,16 @@ export default function AdminApplications() {
       </ScrollView>
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={[styles.content, { paddingBottom: botPad + 20 }]}>
-        {loading ? (
+        {error ? (
+          <View style={[styles.error, { backgroundColor: '#FF5050' + '15', borderColor: '#FF5050' }]}>
+            <MaterialCommunityIcons name="alert-circle-outline" size={36} color="#FF5050" />
+            <Text style={[styles.errorTitle, { color: '#FF5050' }]}>Failed to Load</Text>
+            <Text style={[styles.errorText, { color: colors.mutedForeground }]}>{error}</Text>
+            <Pressable onPress={loadApps} style={[styles.retryBtn, { backgroundColor: '#FF5050' }]}>
+              <Text style={[styles.retryBtnText]}>Retry</Text>
+            </Pressable>
+          </View>
+        ) : loading ? (
           <ActivityIndicator color={colors.primary} style={{ marginTop: 40 }} />
         ) : filtered.length === 0 ? (
           <View style={[styles.empty, { backgroundColor: colors.card, borderColor: colors.border }]}>
@@ -213,6 +229,11 @@ const styles = StyleSheet.create({
   filterChip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, borderWidth: 1 },
   filterText: { fontSize: 12, fontFamily: 'Inter_600SemiBold' },
   content: { padding: 16, gap: 10 },
+  error: { borderRadius: 14, borderWidth: 2, padding: 24, alignItems: 'center', gap: 12, marginTop: 20 },
+  errorTitle: { fontSize: 18, fontFamily: 'Inter_700Bold' },
+  errorText: { fontSize: 13, fontFamily: 'Inter_400Regular', textAlign: 'center' },
+  retryBtn: { paddingHorizontal: 20, paddingVertical: 10, borderRadius: 8, marginTop: 8 },
+  retryBtnText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: '#FFF' },
   empty: { borderRadius: 14, borderWidth: 1, padding: 32, alignItems: 'center', gap: 8 },
   emptyText: { fontSize: 14, fontFamily: 'Inter_400Regular' },
   appCard: { borderRadius: 14, borderWidth: 1, padding: 14, gap: 6 },
