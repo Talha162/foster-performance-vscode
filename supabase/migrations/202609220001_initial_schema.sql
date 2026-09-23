@@ -652,6 +652,7 @@ create table public.audit_logs (
   action text not null,
   entity_type text not null,
   entity_id text,
+  details jsonb not null default '{}'::jsonb,
   metadata jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now()
 );
