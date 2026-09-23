@@ -33,17 +33,33 @@ export interface LeaderboardProfile {
   achievements: LeaderboardAchievement[];
 }
 
+interface LeaderboardMeta {
+  league: LeaderboardLeague;
+}
+
+interface FriendRequest {
+  id: string;
+  from_user_id: string;
+  from_user_name: string;
+  created_at: string;
+}
+
+interface StreakDetail {
+  streak: LeaderboardStreak | undefined;
+  history: Array<{ activity_date: string; activities_count: number }>;
+}
+
 interface LeaderboardContextValue {
   profile: LeaderboardProfile | null;
   loading: boolean;
   refresh: () => Promise<void>;
   recordActivity: (type: ActivityType) => Promise<{ pointsAwarded: number; newAchievements: string[]; isDuplicate: boolean }>;
   fetchGlobal: (filter?: string) => Promise<LeaderboardEntry[]>;
-  fetchLeague: () => Promise<{ leaderboard: LeaderboardEntry[]; meta: any }>;
-  fetchFriends: () => Promise<{ leaderboard: LeaderboardEntry[]; pendingRequests: any[] }>;
+  fetchLeague: () => Promise<{ leaderboard: LeaderboardEntry[]; meta: LeaderboardMeta }>;
+  fetchFriends: () => Promise<{ leaderboard: LeaderboardEntry[]; pendingRequests: FriendRequest[] }>;
   fetchChallenges: () => Promise<Challenge[]>;
   fetchAchievements: () => Promise<LeaderboardAchievement[]>;
-  fetchStreakDetail: () => Promise<any>;
+  fetchStreakDetail: () => Promise<StreakDetail | null>;
   addFriend: (email: string) => Promise<void>;
   acceptFriend: (requestId: string) => Promise<void>;
   useStreakFreeze: () => Promise<void>;
@@ -114,6 +130,8 @@ export function LeaderboardProvider({ children }: { children: React.ReactNode })
         todayActivities: (activityResult.data ?? []).map((row) => row.activity_type as ActivityType),
         achievements,
       });
+    } catch (error) {
+      console.error('[LeaderboardContext] Failed to refresh leaderboard:', error);
     } finally {
       if (mounted.current) setLoading(false);
     }
@@ -121,7 +139,7 @@ export function LeaderboardProvider({ children }: { children: React.ReactNode })
 
   useEffect(() => {
     mounted.current = true;
-    if (user?.accountType === 'member') void refresh().catch(() => undefined);
+    if (user?.accountType === 'member') void refresh().catch((error: any) => console.error('[LeaderboardContext] Initial load failed:', error));
     return () => { mounted.current = false; };
   }, [refresh, user?.accountType]);
 

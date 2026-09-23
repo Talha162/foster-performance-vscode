@@ -180,7 +180,9 @@ export function FPScoreProvider({ children }: { children: React.ReactNode }) {
         return { id: row.id, date: row.recorded_on, score: row.score, breakdown: row.components as Record<string, number>, metric };
       }));
       if (weightResult.data?.value) setWeights({ ...DEFAULT_WEIGHTS, ...(weightResult.data.value as Partial<FPScoreWeights>) });
-    }).catch(() => undefined);
+    }).catch((error: any) => {
+      console.error('[FPScoreContext] Failed to load FP score data:', error?.message || error);
+    });
   }, [user]);
 
   const currentScore = scoreHistory[0]?.score ?? null;
