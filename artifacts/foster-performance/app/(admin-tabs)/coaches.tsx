@@ -15,17 +15,24 @@ export default function AdminCoaches() {
   useAuth();
   const [coaches, setCoaches] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
   const botPad = Platform.OS === 'web' ? 34 : insets.bottom;
 
   const load = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       const { data, error } = await supabase.from('profiles').select('*').eq('role', 'coach').order('created_at', { ascending: false });
       if (error) throw error;
       setCoaches((data ?? []).map((profile: any) => ({ ...profile, name: profile.full_name })));
-    } catch { setCoaches([]); }
+    } catch (err: any) {
+      const errorMsg = err?.message || 'Failed to load coaches';
+      console.error('[AdminCoaches] Load error:', err);
+      setError(errorMsg);
+      setCoaches([]);
+    }
     finally { setLoading(false); }
   }, []);
 
@@ -54,7 +61,16 @@ export default function AdminCoaches() {
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={[styles.content, { paddingBottom: botPad + 20 }]}>
-        {loading ? (
+        {error ? (
+          <View style={[styles.error, { backgroundColor: '#FF5050' + '15', borderColor: '#FF5050' }]}>
+            <MaterialCommunityIcons name="alert-circle-outline" size={36} color="#FF5050" />
+            <Text style={[styles.errorTitle, { color: '#FF5050' }]}>Failed to Load</Text>
+            <Text style={[styles.errorText, { color: colors.mutedForeground }]}>{error}</Text>
+            <Pressable onPress={load} style={[styles.retryBtn, { backgroundColor: '#FF5050' }]}>
+              <Text style={[styles.retryBtnText]}>Retry</Text>
+            </Pressable>
+          </View>
+        ) : loading ? (
           <ActivityIndicator color={colors.primary} style={{ marginTop: 40 }} />
         ) : coaches.length === 0 ? (
           <View style={[styles.empty, { backgroundColor: colors.card, borderColor: colors.border }]}>
@@ -97,6 +113,11 @@ const styles = StyleSheet.create({
   title: { fontSize: 22, fontFamily: 'Inter_700Bold' },
   sub: { fontSize: 12, fontFamily: 'Inter_400Regular', marginTop: 2 },
   content: { padding: 16, gap: 10 },
+  error: { borderRadius: 14, borderWidth: 2, padding: 24, alignItems: 'center', gap: 12, marginTop: 20 },
+  errorTitle: { fontSize: 18, fontFamily: 'Inter_700Bold' },
+  errorText: { fontSize: 13, fontFamily: 'Inter_400Regular', textAlign: 'center' },
+  retryBtn: { paddingHorizontal: 20, paddingVertical: 10, borderRadius: 8, marginTop: 8 },
+  retryBtnText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: '#FFF' },
   empty: { borderRadius: 14, borderWidth: 1, padding: 32, alignItems: 'center', gap: 12 },
   emptyText: { fontSize: 14, fontFamily: 'Inter_400Regular' },
   reviewBtn: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 10 },
