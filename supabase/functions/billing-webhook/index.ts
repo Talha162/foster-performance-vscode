@@ -25,7 +25,18 @@ Deno.serve(async (req) => {
       Deno.env.get('STRIPE_WEBHOOK_SECRET')!,
     );
 
-    if (event.type.startsWith('customer.subscription.')) {
+    if (event.type === 'checkout.session.completed') {
+      const session = event.data.object as Stripe.Checkout.Session;
+      const bookingId = session.metadata?.booking_id;
+      if (bookingId && session.payment_status === 'paid') {
+        const admin = createAdminClient();
+        await admin.from('bookings').update({
+          status: 'upcoming',
+          stripe_payment_status: session.payment_status,
+          stripe_payment_intent_id: typeof session.payment_intent === 'string' ? session.payment_intent : null,
+        }).eq('id', bookingId);
+      }
+    } else if (event.type.startsWith('customer.subscription.')) {
       const subscription = event.data.object as Stripe.Subscription;
       const userId = subscription.metadata.supabase_user_id;
       if (userId) {
