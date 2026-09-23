@@ -17,8 +17,8 @@ port = 54323
 
 [auth]
 enabled = true
-site_url = "fosterperformance://"
-additional_redirect_urls = ["exp://127.0.0.1:8081", "http://localhost:8081"]
+site_url = "foster-performance://"
+additional_redirect_urls = ["foster-performance://**", "exp://127.0.0.1:8081", "http://localhost:8081"]
 jwt_expiry = 3600
 enable_signup = true
 
@@ -33,6 +33,9 @@ enabled = true
 verify_jwt = true
 
 [functions.billing-webhook]
+verify_jwt = false
+
+[functions.billing-return]
 verify_jwt = false
 
 [functions.delete-account]
