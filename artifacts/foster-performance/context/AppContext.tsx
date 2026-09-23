@@ -624,7 +624,7 @@ const WORKOUT_PROGRAMS: WorkoutProgram[] = [
   {
     id: 'w1', title: 'Power Walking for Fitness',
     description: '8-week progressive walking program that builds cardiovascular fitness, burns calories, and improves overall health without joint stress.',
-    trainingType: 'walking' as any, subcategory: 'Walking', level: 'Beginner',
+    trainingType: 'walking', subcategory: 'Walking', level: 'Beginner',
     weeks: 8, daysPerWeek: 5, duration: 40, category: 'Cardio', isPremium: false,
     imageColor: '#8BC34A',
     coachTip: 'Walk with intention — keep your core lightly engaged, shoulders relaxed, and eyes forward. A 20-minute brisk walk burns as many calories as a 15-minute jog for most people.',
@@ -643,7 +643,7 @@ const WORKOUT_PROGRAMS: WorkoutProgram[] = [
   {
     id: 'ct1', title: 'Cross-Training Challenge',
     description: '8-week mixed-modality program combining strength, cardio, and functional movements for total-body fitness and athletic endurance.',
-    trainingType: 'crosstraining' as any, subcategory: 'Cross-Training', level: 'Intermediate',
+    trainingType: 'crosstraining', subcategory: 'Cross-Training', level: 'Intermediate',
     weeks: 8, daysPerWeek: 4, duration: 50, category: 'Cardio', isPremium: false,
     imageColor: '#FF5722',
     coachTip: 'Cross-training is about variety — the combination of modalities challenges your body in new ways every session. Embrace the variety and trust the process.',
@@ -970,7 +970,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setActiveWorkoutId(stateResult.data?.active_workout_id ?? null);
       setActiveNutritionId(stateResult.data?.active_nutrition_id ?? null);
       setBookings(bookingRows.map(bookingRowToAppBooking));
-    }).catch(() => undefined);
+    }).catch((error: any) => {
+      console.error('[AppContext] Failed to load app state:', error?.message || error);
+    });
   }, [user]);
 
   const setActiveWorkout = useCallback(async (id: string | null) => {
