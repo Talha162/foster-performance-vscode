@@ -909,6 +909,56 @@ const COACHES: Coach[] = [
   },
 ];
 
+// ─── Conversion Functions ─────────────────────────────────────────────────────
+
+function toWorkoutProgram(row: any): WorkoutProgram {
+  return {
+    id: row.id,
+    title: row.title,
+    description: row.description,
+    trainingType: row.training_type,
+    subcategory: row.subcategory,
+    level: row.level,
+    weeks: row.weeks,
+    daysPerWeek: row.days_per_week,
+    duration: row.duration_minutes,
+    equipment: row.equipment || [],
+    category: row.category,
+    isPremium: row.is_premium,
+    imageColor: row.image_color || '#2F80FF',
+    coachTip: row.coach_tip || '',
+    exercises: (row.exercises as any[]) || [],
+    weeklySchedule: (row.weekly_schedule as any[]) || [],
+  };
+}
+
+function toNutritionPlan(row: any): NutritionPlan {
+  return {
+    id: row.id,
+    title: row.title,
+    description: row.description,
+    goal: row.goal,
+    dailyCalories: row.daily_calories || 2000,
+    protein: row.protein_target || 150,
+    carbs: row.carbs_target || 200,
+    fat: row.fat_target || 65,
+    isPremium: row.is_premium || false,
+    meals: (row.meals as any[]) || [],
+  };
+}
+
+function toRehabProgram(row: any): RehabProgram {
+  return {
+    id: row.id,
+    title: row.title,
+    description: row.description,
+    bodyPart: row.body_part || row.injury_type || 'General',
+    duration: String(row.duration_weeks || 4),
+    phases: row.phases || 3,
+    exercises: (row.exercises as any[]) || [],
+  };
+}
+
 // ─── Context Type ─────────────────────────────────────────────────────────────
 
 interface AppContextType {
@@ -935,11 +985,38 @@ const AppContext = createContext<AppContextType | null>(null);
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
+  const [workoutPrograms, setWorkoutPrograms] = useState<WorkoutProgram[]>(WORKOUT_PROGRAMS);
+  const [nutritionPlans, setNutritionPlans] = useState<NutritionPlan[]>(NUTRITION_PLANS);
+  const [rehabPrograms, setRehabPrograms] = useState<RehabProgram[]>(REHAB_PROGRAMS);
+  const [coaches, setCoaches] = useState<Coach[]>(COACHES);
   const [progressEntries, setProgressEntries] = useState<ProgressEntry[]>([]);
   const [workoutLogs, setWorkoutLogs] = useState<WorkoutLog[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [activeWorkoutId, setActiveWorkoutId] = useState<string | null>(null);
   const [activeNutritionId, setActiveNutritionId] = useState<string | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const [wpResult, npResult, rpResult] = await Promise.all([
+          supabase.from('workout_programs').select('*').eq('is_published', true).limit(50),
+          supabase.from('nutrition_plans').select('*').limit(10),
+          supabase.from('rehab_programs').select('*').limit(10),
+        ]);
+        if (wpResult.data && wpResult.data.length > 0) {
+          setWorkoutPrograms((wpResult.data as any[]).map(toWorkoutProgram));
+        }
+        if (npResult.data && npResult.data.length > 0) {
+          setNutritionPlans((npResult.data as any[]).map(toNutritionPlan));
+        }
+        if (rpResult.data && rpResult.data.length > 0) {
+          setRehabPrograms((rpResult.data as any[]).map(toRehabProgram));
+        }
+      } catch (error) {
+        console.error('[AppContext] Failed to load programs from Supabase, using defaults:', error);
+      }
+    })();
+  }, []);
 
   useEffect(() => {
     if (!user) {
@@ -1057,10 +1134,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [bookings]);
 
   const contextValue = useMemo<AppContextType>(() => ({
-    workoutPrograms: WORKOUT_PROGRAMS,
-    nutritionPlans: NUTRITION_PLANS,
-    rehabPrograms: REHAB_PROGRAMS,
-    coaches: COACHES,
+    workoutPrograms,
+    nutritionPlans,
+    rehabPrograms,
+    coaches,
     progressEntries,
     workoutLogs,
     bookings,
@@ -1073,6 +1150,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     addBooking,
     cancelBooking,
   }), [
+    workoutPrograms, nutritionPlans, rehabPrograms, coaches,
     activeNutritionId, activeWorkoutId, addBooking, addProgressEntry, bookings,
     cancelBooking, logWorkout, progressEntries, setActiveNutrition,
     setActiveWorkout, workoutLogs,
