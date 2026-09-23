@@ -12,11 +12,9 @@ declare
   current_user_id uuid := (select auth.uid());
   award integer;
   inserted_count integer;
-  previous_date date;
   new_current integer;
-  new_longest integer;
   total_points integer;
-  unlocked text[] := '{}';
+  unlocked text[] := array[]::text[];
 begin
   if current_user_id is null then raise exception 'Authentication required'; end if;
   if not exists (select 1 from public.profiles where id = current_user_id and not is_suspended) then
@@ -44,7 +42,6 @@ begin
     updated_at = now()
   returning total into total_points;
 
-  select last_activity_date into previous_date from public.streaks where user_id = current_user_id;
   insert into public.streaks (user_id, current_streak, longest_streak, last_activity_date)
   values (current_user_id, 1, 1, current_date)
   on conflict (user_id) do update set
@@ -58,7 +55,7 @@ begin
       else 1 end),
     last_activity_date = current_date,
     updated_at = now()
-  returning current_streak, longest_streak into new_current, new_longest;
+  returning current_streak into new_current;
 
   insert into public.streak_history (user_id, activity_date, completed)
   values (current_user_id, current_date, true)
@@ -80,7 +77,7 @@ begin
      or (a.condition_type = p_activity_type and (select count(*) from public.point_transactions where user_id = current_user_id and activity_type = p_activity_type) >= a.condition_value)
   on conflict do nothing;
 
-  select coalesce(array_agg(achievement_id), '{}') into unlocked
+  select coalesce(array_agg(achievement_id), array[]::text[]) into unlocked
   from public.user_achievements where user_id = current_user_id and earned_at >= now() - interval '3 seconds';
 
   return jsonb_build_object('pointsAwarded', award, 'newAchievements', to_jsonb(unlocked), 'isDuplicate', false);
