@@ -50,3 +50,7 @@ Thumbs.db
 # Replit
 .cache/
 .local/
+
+# supabase cli local state
+supabase/.temp/
+supabase/.branches/
