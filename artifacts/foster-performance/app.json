@@ -17,7 +17,13 @@
       "supportsTablet": false
     },
     "android": {
-      "backgroundColor": "#0A0A0A"
+      "backgroundColor": "#0A0A0A",
+      "package": "com.fosterperformance.app",
+      "versionCode": 1,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/icon.png",
+        "backgroundColor": "#0A0A0A"
+      }
     },
     "web": {
       "favicon": "./assets/images/icon.png"
@@ -33,8 +39,7 @@
       "expo-web-browser"
     ],
     "experiments": {
-      "typedRoutes": true,
-      "reactCompiler": true
+      "typedRoutes": true
     }
   }
 }
