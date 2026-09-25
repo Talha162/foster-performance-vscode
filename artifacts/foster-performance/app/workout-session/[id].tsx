@@ -5,10 +5,11 @@ import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import { useApp, Exercise } from '@/context/AppContext';
+import { useLeaderboard } from '@/context/LeaderboardContext';
 import { useColors } from '@/hooks/useColors';
 import { BackgroundLayer } from '@/components/BackgroundLayer';
 import { AppButton } from '@/components/AppButton';
-import { MockNotice, PageHeader, SectionCard, StatusPill } from '@/components/ProductUI';
+import { PageHeader, SectionCard, StatusPill } from '@/components/ProductUI';
 import { ScreenState } from '@/components/ScreenState';
 import { TargetMuscleAvatar } from '@/components/TargetMuscleAvatar';
 import { radii, spacing, typography } from '@/constants/colors';
@@ -33,6 +34,7 @@ function initialLogs(exercises: Exercise[]): ExerciseLogs {
 export default function WorkoutSessionScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { workoutPrograms, setActiveWorkout, logWorkout } = useApp();
+  const { recordActivity } = useLeaderboard();
   const colors = useColors();
   const insets = useSafeAreaInsets();
   const program = workoutPrograms.find((item) => item.id === id);
@@ -45,6 +47,8 @@ export default function WorkoutSessionScreen() {
   const [showExercise, setShowExercise] = useState(false);
   const [showSwap, setShowSwap] = useState(false);
   const [complete, setComplete] = useState(false);
+  const [award, setAward] = useState<{ pointsAwarded: number; newAchievements: string[]; isDuplicate: boolean } | null>(null);
+  const [awardError, setAwardError] = useState<string | null>(null);
   const [replacement, setReplacement] = useState<Record<string, string>>({});
 
   useEffect(() => {
@@ -93,12 +97,20 @@ export default function WorkoutSessionScreen() {
     setLogs((previous) => ({ ...previous, [exercise.id]: previous[exercise.id].filter((_, i) => i !== setIndex) }));
   };
 
-  const finish = () => {
-    if (!complete) {
-      logWorkout(program.id);
-      setActiveWorkout(program.id);
-      setComplete(true);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+  const finish = async () => {
+    if (complete) return;
+    logWorkout(program.id);
+    setActiveWorkout(program.id);
+    setComplete(true);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    // Points, streak and achievements come from the record_activity function.
+    // A failure here must not undo a workout the member actually finished, so
+    // the award is reported separately from completion.
+    try {
+      setAward(await recordActivity('workout'));
+    } catch (error: any) {
+      console.error('[WorkoutSession] Could not record activity:', error?.message ?? error);
+      setAwardError('Your workout was saved, but points could not be awarded right now.');
     }
   };
 
@@ -109,7 +121,7 @@ export default function WorkoutSessionScreen() {
         <ScrollView contentContainerStyle={[styles.completion, { paddingBottom: insets.bottom + 24 }]}>
           <View style={[styles.completeIcon, { backgroundColor: colors.success + '22' }]}><MaterialCommunityIcons name="trophy-outline" size={48} color={colors.success} /></View>
           <Text style={[styles.completeTitle, { color: colors.foreground }]}>Workout Complete</Text>
-          <Text style={[styles.completeSub, { color: colors.mutedForeground }]}>You finished {program.title}. Great consistency—your completed session has been logged on this device.</Text>
+          <Text style={[styles.completeSub, { color: colors.mutedForeground }]}>You finished {program.title}. Great consistency — this session has been saved to your account.</Text>
           <View style={styles.summaryGrid}>
             {[['Duration', duration], ['Exercises', String(exercises.length)], ['Sets', `${completedSets}/${totalSets}`], ['Status', 'Completed']].map(([label, value]) => (
               <View key={label} style={[styles.summaryTile, { backgroundColor: colors.card, borderColor: colors.border }]}>
@@ -117,7 +129,27 @@ export default function WorkoutSessionScreen() {
               </View>
             ))}
           </View>
-          <MockNotice>Points and streak rewards are previewed here; synchronized awarding will be connected in Milestone 2.</MockNotice>
+          {awardError ? (
+            <View style={[styles.awardCard, { borderColor: colors.border, backgroundColor: colors.card }]}>
+              <Text style={[styles.completeSub, { color: colors.mutedForeground }]}>{awardError}</Text>
+            </View>
+          ) : award ? (
+            <View style={[styles.awardCard, { borderColor: colors.success + '55', backgroundColor: colors.success + '12' }]}>
+              <Text style={[styles.awardPoints, { color: colors.success }]}>
+                {award.isDuplicate ? 'Already counted today' : `+${award.pointsAwarded} FP points`}
+              </Text>
+              <Text style={[styles.completeSub, { color: colors.mutedForeground }]}>
+                {award.isDuplicate
+                  ? 'Workout points are awarded once a day. Your streak is safe.'
+                  : 'Added to your streak and leaderboard standing.'}
+              </Text>
+              {award.newAchievements.length > 0 && (
+                <Text style={[styles.completeSub, { color: colors.foreground }]}>
+                  Unlocked: {award.newAchievements.join(', ')}
+                </Text>
+              )}
+            </View>
+          ) : null}
           <AppButton label="Done" icon="check" onPress={() => router.replace('/(tabs)')} />
           <AppButton label="View Program" variant="secondary" onPress={() => router.replace(`/workout/${program.id}`)} />
         </ScrollView>
@@ -193,7 +225,7 @@ const styles = StyleSheet.create({
   timerRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm }, timer: { flex: 1, fontSize: 36, fontFamily: 'Inter_700Bold' }, timerAction: { minWidth: 58, height: 44, borderWidth: 1, borderRadius: radii.md, alignItems: 'center', justifyContent: 'center' },
   navRow: { flexDirection: 'row', gap: spacing.sm }, bottomBar: { position: 'absolute', left: 0, right: 0, bottom: 0, minHeight: 76, borderTopWidth: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: spacing.md, gap: spacing.sm },
   control: { minWidth: 80, minHeight: 46, borderWidth: 1, borderRadius: radii.md, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 }, controlText: { ...typography.caption }, bottomProgress: { ...typography.caption },
-  completion: { flexGrow: 1, justifyContent: 'center', padding: spacing.xl, gap: spacing.lg }, completeIcon: { width: 96, height: 96, borderRadius: 48, alignItems: 'center', justifyContent: 'center', alignSelf: 'center' }, completeTitle: { ...typography.hero, textAlign: 'center' }, completeSub: { ...typography.body, textAlign: 'center' },
+  completion: { flexGrow: 1, justifyContent: 'center', padding: spacing.xl, gap: spacing.lg }, completeIcon: { width: 96, height: 96, borderRadius: 48, alignItems: 'center', justifyContent: 'center', alignSelf: 'center' }, completeTitle: { ...typography.hero, textAlign: 'center' }, completeSub: { ...typography.body, textAlign: 'center' }, awardCard: { borderWidth: 1, borderRadius: 14, padding: 14, gap: 4, alignItems: 'center' }, awardPoints: { ...typography.title },
   summaryGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }, summaryTile: { width: '48%', flexGrow: 1, borderWidth: 1, borderRadius: radii.lg, padding: spacing.md, alignItems: 'center' }, summaryValue: { ...typography.title }, summaryLabel: { ...typography.caption },
   overlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.65)' }, sheet: { borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: spacing.xl, paddingBottom: 36, gap: spacing.md }, sheetTitle: { ...typography.title }, sheetBody: { ...typography.bodySmall, lineHeight: 20 },
   mediaPlaceholder: { minHeight: 100, borderRadius: radii.lg, alignItems: 'center', justifyContent: 'center', gap: 6 }, swapRow: { minHeight: 64, borderBottomWidth: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }, swapName: { ...typography.label }, swapMeta: { ...typography.caption, marginTop: 2 },
