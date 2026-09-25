@@ -51,24 +51,37 @@ async function hydrateCoaches(rows: any[]): Promise<Coach[]> {
   if (rows.length === 0) return [];
 
   const coachIds = rows.map((row) => row.user_id);
+  // Coaches and review authors are people the viewer usually has no
+  // relationship with, so RLS hides their profile rows. Display fields come
+  // from a definer function that returns a name and avatar and nothing else.
   const [profilesResult, availabilityResult, reviewsResult] = await Promise.all([
-    supabase.from('profiles').select('id, full_name, avatar_url').in('id', coachIds),
+    supabase.rpc('public_display_profiles', { p_user_ids: coachIds }),
     supabase.from('coach_availability').select('*').in('coach_id', coachIds),
-    supabase.from('coach_reviews').select(`
-      id, coach_id, rating, review_text, created_at,
-      member:profiles!coach_reviews_member_id_fkey(full_name)
-    `).in('coach_id', coachIds),
+    supabase.from('coach_reviews')
+      .select('id, coach_id, member_id, rating, review_text, created_at')
+      .in('coach_id', coachIds),
   ]);
 
   const firstError = profilesResult.error ?? availabilityResult.error ?? reviewsResult.error;
   if (firstError) throw new Error(firstError.message);
 
+  const reviews = reviewsResult.data ?? [];
+  const authors = await supabase.rpc('public_display_profiles', {
+    p_user_ids: Array.from(new Set(reviews.map((review: any) => review.member_id).filter(Boolean))),
+  });
+  if (authors.error) throw new Error(authors.error.message);
+  const authorById = new Map<string, any>((authors.data ?? []).map((a: any) => [a.id, a]));
+
+  const coachProfiles = (profilesResult.data ?? []) as any[];
+
   return rows.map((row) => toCoach({
     ...row,
     profile: {
-      ...(profilesResult.data ?? []).find((profile) => profile.id === row.user_id),
+      ...coachProfiles.find((profile) => profile.id === row.user_id),
       coach_availability: (availabilityResult.data ?? []).filter((slot) => slot.coach_id === row.user_id),
-      coach_reviews: (reviewsResult.data ?? []).filter((review) => review.coach_id === row.user_id),
+      coach_reviews: reviews
+        .filter((review: any) => review.coach_id === row.user_id)
+        .map((review: any) => ({ ...review, member: authorById.get(review.member_id) ?? null })),
     },
   }));
 }

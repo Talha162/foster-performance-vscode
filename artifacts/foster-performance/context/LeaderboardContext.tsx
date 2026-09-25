@@ -247,7 +247,7 @@ async function fetchLeaderboardRows(orderColumn: 'total' | 'weekly'): Promise<Le
     // RLS hides profiles you have no relationship with, but the leaderboard
     // ranks everyone, so names come from a definer function that exposes only
     // id and full_name.
-    supabase.rpc('leaderboard_display_names', { p_user_ids: userIds }),
+    supabase.rpc('public_display_profiles', { p_user_ids: userIds }),
     supabase.from('streaks').select('user_id, current_streak').in('user_id', userIds),
     supabase.from('league_memberships').select('user_id, league:leagues(*)').in('user_id', userIds),
   ]);
@@ -258,7 +258,7 @@ async function fetchLeaderboardRows(orderColumn: 'total' | 'weekly'): Promise<Le
   return (pointsResult.data ?? []).map((row: any, index) => ({
     rank: index + 1,
     userId: row.user_id,
-    displayName: (profilesResult.data ?? []).find((profile: { id: string; full_name: string }) => profile.id === row.user_id)?.full_name ?? 'Member',
+    displayName: (profilesResult.data ?? []).find((profile: { id: string; full_name: string | null }) => profile.id === row.user_id)?.full_name ?? 'Member',
     isMe: row.user_id === authData.user?.id,
     points: { total: row.total, weekly: row.weekly },
     streak: (streaksResult.data ?? []).find((streak) => streak.user_id === row.user_id)?.current_streak ?? 0,
