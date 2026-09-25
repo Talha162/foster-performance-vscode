@@ -42,6 +42,8 @@ interface MessagingContextType {
     coachName: string;
   }) => Promise<string>;
   markRead: (convId: string, readerRole: 'member' | 'coach') => Promise<void>;
+  /** Files a moderation report. Pass messageId to report one message rather than the thread. */
+  reportConversation: (opts: { convId: string; reason: string; details?: string; messageId?: string }) => Promise<void>;
   refreshConversations: () => Promise<void>;
   unreadForRole: (role: 'member' | 'coach', userId: string, coachApiId?: string) => number;
 }
@@ -186,6 +188,28 @@ export function MessagingProvider({ children }: { children: React.ReactNode }) {
     await refreshConversations();
   }, [refreshConversations, user]);
 
+  const reportConversation = useCallback(async (opts: {
+    convId: string; reason: string; details?: string; messageId?: string;
+  }) => {
+    if (!user) throw new Error('You must be signed in to report a conversation.');
+    const conversation = conversations.find((item) => item.id === opts.convId);
+    if (!conversation) throw new Error('That conversation is no longer available.');
+    // Whoever in the thread is not the reporter is the subject of the report.
+    const reportedUserId = conversation.memberUserId === user.id
+      ? conversation.coachApiId
+      : conversation.memberUserId;
+
+    const { error } = await supabase.from('moderation_reports').insert({
+      reporter_id: user.id,
+      reported_user_id: reportedUserId,
+      conversation_id: opts.convId,
+      message_id: opts.messageId ?? null,
+      reason: opts.reason,
+      details: opts.details ?? null,
+    });
+    if (error) throw new Error(error.message);
+  }, [conversations, user]);
+
   const unreadForRole = useCallback((role: 'member' | 'coach', userId: string, coachApiId?: string) => {
     return conversations
       .filter((conversation) => role === 'member'
@@ -201,6 +225,7 @@ export function MessagingProvider({ children }: { children: React.ReactNode }) {
       sendMessage,
       openOrCreateConversation,
       markRead,
+      reportConversation,
       refreshConversations,
       unreadForRole,
     }}>
