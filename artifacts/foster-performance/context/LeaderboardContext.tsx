@@ -131,7 +131,7 @@ export function LeaderboardProvider({ children }: { children: React.ReactNode })
         achievements,
       });
     } catch (error) {
-      console.error('[LeaderboardContext] Failed to refresh leaderboard:', error);
+      console.info('[LeaderboardContext] Background refresh failed:', error);
     } finally {
       if (mounted.current) setLoading(false);
     }
@@ -139,7 +139,7 @@ export function LeaderboardProvider({ children }: { children: React.ReactNode })
 
   useEffect(() => {
     mounted.current = true;
-    if (user?.accountType === 'member') void refresh().catch((error: any) => console.error('[LeaderboardContext] Initial load failed:', error));
+    if (user?.accountType === 'member') void refresh().catch((error: any) => console.info('[LeaderboardContext] Initial load failed:', error));
     return () => { mounted.current = false; };
   }, [refresh, user?.accountType]);
 
@@ -231,21 +231,33 @@ export function LeaderboardProvider({ children }: { children: React.ReactNode })
 }
 
 async function fetchLeaderboardRows(orderColumn: 'total' | 'weekly'): Promise<LeaderboardEntry[]> {
-  const { data, error } = await supabase
+  const pointsResult = await supabase
     .from('fp_points')
-    .select('user_id, total, weekly, profile:profiles!fp_points_user_id_fkey(full_name), streak:streaks!streaks_user_id_fkey(current_streak), membership:league_memberships!league_memberships_user_id_fkey(league:leagues(*))')
+    .select('user_id, total, weekly')
     .order(orderColumn, { ascending: false })
     .limit(100);
-  if (error) throw new Error(error.message);
+  if (pointsResult.error) throw new Error(pointsResult.error.message);
+
+  const userIds = (pointsResult.data ?? []).map((row) => row.user_id);
+  if (userIds.length === 0) return [];
+
+  const [profilesResult, streaksResult, membershipsResult] = await Promise.all([
+    supabase.from('profiles').select('id, full_name').in('id', userIds),
+    supabase.from('streaks').select('user_id, current_streak').in('user_id', userIds),
+    supabase.from('league_memberships').select('user_id, league:leagues(*)').in('user_id', userIds),
+  ]);
+  const firstError = profilesResult.error ?? streaksResult.error ?? membershipsResult.error;
+  if (firstError) throw new Error(firstError.message);
+
   const { data: authData } = await supabase.auth.getUser();
-  return (data ?? []).map((row: any, index) => ({
+  return (pointsResult.data ?? []).map((row: any, index) => ({
     rank: index + 1,
     userId: row.user_id,
-    displayName: row.profile?.full_name ?? 'Member',
+    displayName: (profilesResult.data ?? []).find((profile) => profile.id === row.user_id)?.full_name ?? 'Member',
     isMe: row.user_id === authData.user?.id,
     points: { total: row.total, weekly: row.weekly },
-    streak: row.streak?.current_streak ?? 0,
-    league: row.membership?.league ?? fallbackLeague,
+    streak: (streaksResult.data ?? []).find((streak) => streak.user_id === row.user_id)?.current_streak ?? 0,
+    league: ((membershipsResult.data ?? []).find((membership) => membership.user_id === row.user_id)?.league as unknown as LeaderboardLeague) ?? fallbackLeague,
   }));
 }
 

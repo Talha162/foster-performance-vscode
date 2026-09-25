@@ -42,3 +42,7 @@ yarn-error.*
 
 # expo export verification output
 .expo-export-check/
+
+# Metro dev-server logs
+.codex-metro.err.log
+.codex-metro.out.log

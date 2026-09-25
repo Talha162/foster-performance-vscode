@@ -102,12 +102,12 @@ export function MessagingProvider({ children }: { children: React.ReactNode }) {
   }, [user]);
 
   useEffect(() => {
-    void refreshConversations().catch((error: any) => console.error('[MessagingContext] Failed to load conversations:', error));
+    void refreshConversations().catch((error: any) => console.info('[MessagingContext] Background load failed:', error));
     if (!user) return;
     const channel = supabase
       .channel(`messages:${user.id}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, () => {
-        void refreshConversations().catch((error: any) => console.error('[MessagingContext] Failed to refresh on message update:', error));
+        void refreshConversations().catch((error: any) => console.info('[MessagingContext] Background refresh failed:', error));
       })
       .subscribe();
     return () => { void supabase.removeChannel(channel); };

@@ -259,7 +259,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setNutritionPlans((npResult.data ?? []).map(toNutritionPlan));
         setRehabPrograms((rpResult.data ?? []).map(toRehabProgram));
       } catch (error: any) {
-        console.error('[AppContext] Failed to load program catalog:', error?.message ?? error);
+        console.info('[AppContext] Background program load failed:', error?.message ?? error);
       } finally {
         setCatalogLoading(false);
       }
@@ -275,7 +275,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
     fetchCoaches()
       .then(setCoaches)
-      .catch((error: any) => console.error('[AppContext] Failed to load coaches:', error?.message ?? error));
+      .catch((error: any) => console.info('[AppContext] Background coach load failed:', error?.message ?? error));
   }, [user]);
 
   useEffect(() => {
@@ -308,7 +308,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setActiveNutritionId(stateResult.data?.active_nutrition_id ?? null);
       setBookings(bookingRows.map(bookingRowToAppBooking));
     }).catch((error: any) => {
-      console.error('[AppContext] Failed to load app state:', error?.message || error);
+      console.info('[AppContext] Background app-state load failed:', error?.message || error);
     });
   }, [user]);
 

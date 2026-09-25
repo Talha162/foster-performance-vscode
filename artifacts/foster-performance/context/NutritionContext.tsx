@@ -369,8 +369,8 @@ export function NutritionProvider({ children }: { children: React.ReactNode }) {
       return;
     }
     setLoading(true);
-    void Promise.all([loadDashboard(), loadRecipes(), loadSavedRecipes(), loadGroceryList()])
-      .finally(() => setLoading(false));
+    void Promise.allSettled([loadDashboard(), loadRecipes(), loadSavedRecipes(), loadGroceryList()])
+      .then(() => setLoading(false));
   }, [user, loadDashboard, loadRecipes, loadSavedRecipes, loadGroceryList]);
 
   return (

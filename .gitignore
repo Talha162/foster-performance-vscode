@@ -54,3 +54,14 @@ Thumbs.db
 # supabase cli local state
 supabase/.temp/
 supabase/.branches/
+
+# Emulator / Metro debugging artifacts (regenerated, ~36MB)
+emulator-screen.png
+emulator-window.xml
+metro-bundle.js
+metro-bundle.hbc
+metro-bundle-runtime.bin
+
+# QA-only edge function: contains a hardcoded bootstrap token and plaintext
+# passwords for a seeded owner_admin account. Must not enter git history.
+supabase/functions/qa-bootstrap/

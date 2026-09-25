@@ -37,7 +37,7 @@ const GOALS = [
 type GoalKey = typeof GOALS[number]['key'];
 
 const LEVELS = [
-  { key: 'Beginner',     label: 'Beginner',     sub: 'New to structured training',          icon: 'seedling',    color: '#4CAF50' },
+  { key: 'Beginner',     label: 'Beginner',     sub: 'New to structured training',          icon: 'sprout',      color: '#4CAF50' },
   { key: 'Intermediate', label: 'Intermediate', sub: '1–3 years of consistent training',    icon: 'trending-up', color: '#2F80FF' },
   { key: 'Advanced',     label: 'Advanced',     sub: '3+ years of serious training',        icon: 'star-outline', color: '#D6A84B' },
 ] as const;
@@ -140,6 +140,7 @@ export default function OnboardingScreen() {
         {/* Step 0 — Goal Selection */}
         {step === 0 && (
           <ScrollView
+            style={styles.scroll}
             showsVerticalScrollIndicator={false}
             contentContainerStyle={styles.listStack}
           >
@@ -250,8 +251,6 @@ export default function OnboardingScreen() {
             {
               backgroundColor: canContinue ? colors.primary : colors.secondary,
               opacity: pressed || saving ? 0.8 : 1,
-              flex: step > 0 ? 1 : undefined,
-              alignSelf: step === 0 ? 'stretch' : undefined,
             },
           ]}
         >
@@ -298,6 +297,10 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
     paddingHorizontal: 20,
+    minHeight: 0,
+  },
+  scroll: {
+    flex: 1,
   },
   titleBlock: {
     gap: 6,
@@ -316,6 +319,7 @@ const styles = StyleSheet.create({
   // List cards (goal + level)
   listStack: {
     gap: 10,
+    paddingBottom: 12,
   },
   listCard: {
     flexDirection: 'row',
