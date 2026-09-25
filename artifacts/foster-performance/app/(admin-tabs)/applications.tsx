@@ -99,7 +99,7 @@ export default function AdminApplications() {
       </View>
 
       {/* Filter */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScroll} contentContainerStyle={styles.filterRow}>
         {['all', 'Submitted', 'Pending Review', 'More Information Required', 'Approved', 'Rejected'].map((f) => (
           <Pressable
             key={f}
@@ -225,7 +225,9 @@ const styles = StyleSheet.create({
   backBtn: { paddingBottom: 2 },
   title: { fontSize: 22, fontFamily: 'Inter_700Bold' },
   sub: { fontSize: 12, fontFamily: 'Inter_400Regular', marginTop: 2 },
-  filterRow: { paddingHorizontal: 16, paddingVertical: 10, gap: 8 },
+  // See coaches.tsx: pin the horizontal scroller so chips keep their height.
+  filterScroll: { flexGrow: 0, flexShrink: 0 },
+  filterRow: { paddingHorizontal: 16, paddingVertical: 10, gap: 8, alignItems: 'center' },
   filterChip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, borderWidth: 1 },
   filterText: { fontSize: 12, fontFamily: 'Inter_600SemiBold' },
   content: { padding: 16, gap: 10 },

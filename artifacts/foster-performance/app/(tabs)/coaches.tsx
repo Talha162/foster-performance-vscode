@@ -124,7 +124,7 @@ export default function CoachesTabScreen() {
       </View>
 
       {/* Filter chips */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipsScroll} contentContainerStyle={styles.chips}>
         {TYPE_FILTERS.map((f) => (
           <Pressable
             key={f.value}
@@ -208,7 +208,10 @@ const styles = StyleSheet.create({
   livePill: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 9, paddingVertical: 4, borderRadius: 20, borderWidth: 1 },
   liveDot: { width: 6, height: 6, borderRadius: 3 },
   livePillText: { fontSize: 11, fontFamily: 'Inter_700Bold' },
-  chips: { paddingHorizontal: 16, paddingVertical: 8, gap: 8 },
+  // A horizontal ScrollView in a column parent grows to fill the leftover
+  // height and stretches its chips into tall columns; flexGrow 0 pins it.
+  chipsScroll: { flexGrow: 0, flexShrink: 0 },
+  chips: { paddingHorizontal: 16, paddingVertical: 8, gap: 8, alignItems: 'center' },
   chip: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20, borderWidth: 1 },
   chipText: { fontSize: 13, fontFamily: 'Inter_600SemiBold' },
   list: { padding: 16, gap: 12 },

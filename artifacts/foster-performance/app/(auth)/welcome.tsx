@@ -95,7 +95,14 @@ export default function WelcomeScreen() {
           <Text style={[styles.btnSecondaryText, { color: colors.foreground }]}>Sign In</Text>
         </Pressable>
         <Text style={[styles.legal, { color: colors.mutedForeground }]}>
-          By continuing you agree to our Terms & Privacy Policy
+          By continuing you agree to our{' '}
+          <Text
+            style={[styles.legalLink, { color: colors.foreground }]}
+            onPress={() => router.push('/privacy-policy')}
+            accessibilityRole="link"
+          >
+            Terms &amp; Privacy Policy
+          </Text>
         </Text>
       </View>
     </View>
@@ -192,5 +199,9 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter_400Regular',
     textAlign: 'center',
     marginTop: 4,
+  },
+  legalLink: {
+    fontFamily: 'Inter_600SemiBold',
+    textDecorationLine: 'underline',
   },
 });
