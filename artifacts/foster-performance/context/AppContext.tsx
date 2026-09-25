@@ -125,6 +125,8 @@ export interface Coach {
   availability: string[];
   /** Active availability windows, used to derive bookable days and time slots. */
   availabilitySlots: CoachAvailabilitySlot[];
+  /** ISO dates (YYYY-MM-DD) the coach has closed, overriding the weekly pattern. */
+  unavailableDates: string[];
   session30Price: number;
   session60Price: number;
 }

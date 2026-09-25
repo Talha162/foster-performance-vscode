@@ -42,6 +42,7 @@ function toCoach(row: any): Coach {
     availabilitySlots: (row.profile?.coach_availability ?? [])
       .filter((slot: any) => slot.is_active)
       .map((slot: any) => ({ weekday: slot.weekday, startTime: slot.start_time, endTime: slot.end_time })),
+    unavailableDates: (row.profile?.coach_exceptions ?? []).map((item: any) => item.unavailable_on),
     session30Price: Math.round((row.session_30_price_cents ?? 5500) / 100),
     session60Price: Math.round((row.session_60_price_cents ?? 9000) / 100),
   } as Coach;
@@ -54,15 +55,19 @@ async function hydrateCoaches(rows: any[]): Promise<Coach[]> {
   // Coaches and review authors are people the viewer usually has no
   // relationship with, so RLS hides their profile rows. Display fields come
   // from a definer function that returns a name and avatar and nothing else.
-  const [profilesResult, availabilityResult, reviewsResult] = await Promise.all([
+  const [profilesResult, availabilityResult, exceptionsResult, reviewsResult] = await Promise.all([
     supabase.rpc('public_display_profiles', { p_user_ids: coachIds }),
     supabase.from('coach_availability').select('*').in('coach_id', coachIds),
+    supabase.from('coach_availability_exceptions')
+      .select('coach_id, unavailable_on')
+      .in('coach_id', coachIds)
+      .gte('unavailable_on', new Date().toISOString().slice(0, 10)),
     supabase.from('coach_reviews')
       .select('id, coach_id, member_id, rating, review_text, created_at')
       .in('coach_id', coachIds),
   ]);
 
-  const firstError = profilesResult.error ?? availabilityResult.error ?? reviewsResult.error;
+  const firstError = profilesResult.error ?? availabilityResult.error ?? exceptionsResult.error ?? reviewsResult.error;
   if (firstError) throw new Error(firstError.message);
 
   const reviews = reviewsResult.data ?? [];
@@ -79,6 +84,7 @@ async function hydrateCoaches(rows: any[]): Promise<Coach[]> {
     profile: {
       ...coachProfiles.find((profile) => profile.id === row.user_id),
       coach_availability: (availabilityResult.data ?? []).filter((slot) => slot.coach_id === row.user_id),
+      coach_exceptions: (exceptionsResult.data ?? []).filter((item) => item.coach_id === row.user_id),
       coach_reviews: reviews
         .filter((review: any) => review.coach_id === row.user_id)
         .map((review: any) => ({ ...review, member: authorById.get(review.member_id) ?? null })),

@@ -31,7 +31,7 @@ export default function MessageThreadScreen() {
   const insets = useSafeAreaInsets();
   const { convId } = useLocalSearchParams<{ convId: string }>();
   const { user } = useAuth();
-  const { conversations, getMessages, sendMessage, markRead, reportConversation } = useMessaging();
+  const { conversations, getMessages, sendMessage, markRead, reportConversation, setConversationBlocked } = useMessaging();
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [text, setText] = useState('');
@@ -39,7 +39,7 @@ export default function MessageThreadScreen() {
   const [attaching, setAttaching] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [blocked, setBlocked] = useState(false);
+  const [blocking, setBlocking] = useState(false);
   const [replyTo, setReplyTo] = useState<Message | null>(null);
   const [queued, setQueued] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
@@ -51,6 +51,9 @@ export default function MessageThreadScreen() {
   const myRole: 'member' | 'coach' = isCoach ? 'coach' : 'member';
 
   const conv = conversations.find((c) => c.id === convId);
+  const blockedBy = conv?.blockedBy ?? null;
+  const blocked = !!blockedBy;
+  const iBlocked = blockedBy === user?.id;
   const otherName = conv ? (isCoach ? conv.memberName : conv.coachName) : '';
 
   // Load messages and mark as read
@@ -128,6 +131,32 @@ export default function MessageThreadScreen() {
     );
   };
 
+  const toggleBlock = () => {
+    if (!convId || blocking) return;
+    const turningOn = !blocked;
+    Alert.alert(
+      turningOn ? 'Block this conversation?' : 'Unblock this conversation?',
+      turningOn
+        ? 'Neither of you will be able to send new messages. The history stays, and you can undo this at any time.'
+        : 'You will both be able to send messages again.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: turningOn ? 'Block' : 'Unblock',
+          style: turningOn ? 'destructive' : 'default',
+          onPress: async () => {
+            setBlocking(true);
+            try {
+              await setConversationBlocked(convId, turningOn);
+            } catch (error: any) {
+              Alert.alert('Could not update', error?.message ?? 'Please try again.');
+            } finally { setBlocking(false); }
+          },
+        },
+      ],
+    );
+  };
+
   const handleAttach = async () => {
     if (!convId || !user || attaching) return;
     try {
@@ -164,7 +193,7 @@ export default function MessageThreadScreen() {
   };
 
   const conversationMenu = () => Alert.alert('Conversation options', otherName || 'Conversation', [
-    { text: blocked ? 'Unblock user' : 'Block user', style: blocked ? 'default' : 'destructive', onPress: () => { setBlocked(!blocked); Alert.alert(blocked ? 'User unblocked' : 'User blocked', blocked ? 'You can send and receive messages again.' : 'New messages are disabled in this frontend preview.'); } },
+    { text: blocked ? (iBlocked ? 'Unblock' : 'Blocked by the other person') : 'Block', style: blocked ? 'default' : 'destructive', onPress: () => { if (blocked && !iBlocked) { Alert.alert('Conversation closed', 'This conversation was closed by the other person, so only they can reopen it.'); return; } toggleBlock(); } },
     { text: 'Report conversation', style: 'destructive', onPress: () => submitReport('inappropriate_conversation') },
     { text: 'Cancel', style: 'cancel' },
   ]);
@@ -343,7 +372,7 @@ export default function MessageThreadScreen() {
         {/* Input bar */}
         {replyTo && <View style={[styles.replyPreview, { backgroundColor: colors.card, borderColor: colors.border }]}><View style={{ flex: 1 }}><Text style={[styles.replyLabel, { color: colors.primary }]}>Replying to {replyTo.senderName}</Text><Text numberOfLines={1} style={[styles.replyText, { color: colors.mutedForeground }]}>{replyTo.text}</Text></View><Pressable onPress={() => setReplyTo(null)} accessibilityRole="button" accessibilityLabel="Cancel reply" style={styles.menuBtn}><Feather name="x" size={19} color={colors.mutedForeground} /></Pressable></View>}
         {queued && <Pressable onPress={() => { setQueued(false); handleSend(); }} style={[styles.queueBanner, { backgroundColor: colors.destructive + '18', borderColor: colors.destructive }]}><Feather name="wifi-off" size={16} color={colors.destructive} /><Text style={[styles.queueText, { color: colors.foreground }]}>Message not sent · Tap to retry</Text></Pressable>}
-        {blocked && <View style={[styles.queueBanner, { backgroundColor: colors.muted, borderColor: colors.border }]}><Feather name="slash" size={16} color={colors.mutedForeground} /><Text style={[styles.queueText, { color: colors.mutedForeground }]}>You blocked this conversation. Unblock from the menu to continue.</Text></View>}
+        {blocked && <View style={[styles.queueBanner, { backgroundColor: colors.muted, borderColor: colors.border }]}><Feather name="slash" size={16} color={colors.mutedForeground} /><Text style={[styles.queueText, { color: colors.mutedForeground }]}>{iBlocked ? 'You blocked this conversation. Unblock it from the menu to continue.' : 'This conversation is closed, so new messages cannot be sent. Your history is still here.'}</Text></View>}
         <View
           style={[
             styles.inputBar,
