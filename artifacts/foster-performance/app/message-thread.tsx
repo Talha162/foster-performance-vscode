@@ -29,7 +29,7 @@ export default function MessageThreadScreen() {
   const insets = useSafeAreaInsets();
   const { convId } = useLocalSearchParams<{ convId: string }>();
   const { user } = useAuth();
-  const { conversations, getMessages, sendMessage, markRead } = useMessaging();
+  const { conversations, getMessages, sendMessage, markRead, reportConversation } = useMessaging();
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [text, setText] = useState('');
@@ -97,9 +97,37 @@ export default function MessageThreadScreen() {
     }
   };
 
+  const submitReport = (reason: string, messageId?: string, quoted?: string) => {
+    if (!convId) return;
+    Alert.alert(
+      'Report this?',
+      'An administrator will review it. The conversation stays available to you.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Report',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await reportConversation({
+                convId,
+                reason,
+                messageId,
+                details: quoted ? `Reported message: ${quoted}` : undefined,
+              });
+              Alert.alert('Report submitted', 'Thanks — an administrator will review this.');
+            } catch (error: any) {
+              Alert.alert('Could not submit report', error?.message ?? 'Please try again.');
+            }
+          },
+        },
+      ],
+    );
+  };
+
   const conversationMenu = () => Alert.alert('Conversation options', otherName || 'Conversation', [
     { text: blocked ? 'Unblock user' : 'Block user', style: blocked ? 'default' : 'destructive', onPress: () => { setBlocked(!blocked); Alert.alert(blocked ? 'User unblocked' : 'User blocked', blocked ? 'You can send and receive messages again.' : 'New messages are disabled in this frontend preview.'); } },
-    { text: 'Report conversation', onPress: () => Alert.alert('Report submitted', 'The report reason, evidence, and confirmation UX is represented. Backend moderation intake remains pending.') },
+    { text: 'Report conversation', style: 'destructive', onPress: () => submitReport('inappropriate_conversation') },
     { text: 'Cancel', style: 'cancel' },
   ]);
 
@@ -222,7 +250,7 @@ export default function MessageThreadScreen() {
                           { text: 'Reply', onPress: () => setReplyTo(msg) },
                           { text: 'Copy', onPress: () => Alert.alert('Copied preview', 'Clipboard integration will be attached to this action in Milestone 2.') },
                           { text: 'Message info', onPress: () => Alert.alert('Message info', isMine ? 'Sent · Delivered · Read state preview' : 'Received message') },
-                          ...(isMine ? [{ text: 'Delete preview', style: 'destructive' as const, onPress: () => Alert.alert('Delete message', 'Deletion confirmation is ready; server mutation is pending.') }] : [{ text: 'Report message', style: 'destructive' as const, onPress: () => Alert.alert('Message reported', 'No production moderation record was created.') }]),
+                          ...(isMine ? [{ text: 'Delete preview', style: 'destructive' as const, onPress: () => Alert.alert('Delete message', 'Deletion confirmation is ready; server mutation is pending.') }] : [{ text: 'Report message', style: 'destructive' as const, onPress: () => submitReport('inappropriate_message', msg.id, msg.text) }]),
                           { text: 'Cancel', style: 'cancel' },
                         ])}
                         accessibilityRole="text"
