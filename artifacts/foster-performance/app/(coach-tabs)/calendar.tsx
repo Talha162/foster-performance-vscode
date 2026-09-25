@@ -164,7 +164,7 @@ export default function CoachCalendar() {
         contentContainerStyle={[styles.content, { paddingBottom: botPad }]}
         showsVerticalScrollIndicator={false}
       >
-        <MockNotice>Weekly rules may save to the prototype API. Exceptions, policies, conflict detection, and calendar sync remain frontend previews.</MockNotice>
+        <MockNotice>Weekly availability saves to your account and drives the times members can book. One-off exceptions, cancellation policies, conflict detection and external calendar sync are not built yet.</MockNotice>
         <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <Text style={[styles.cardTitle, { color: colors.foreground }]}>Timezone</Text>
           <View style={styles.settingRow}>
