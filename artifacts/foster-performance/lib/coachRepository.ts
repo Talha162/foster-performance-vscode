@@ -39,6 +39,9 @@ function toCoach(row: any): Coach {
     color: hashColor(row.user_id),
     coachType: row.coach_type ?? 'personal',
     availability: Array.from(new Set((row.profile?.coach_availability ?? []).filter((slot: any) => slot.is_active).map((slot: any) => dayLabel(slot.weekday)))),
+    availabilitySlots: (row.profile?.coach_availability ?? [])
+      .filter((slot: any) => slot.is_active)
+      .map((slot: any) => ({ weekday: slot.weekday, startTime: slot.start_time, endTime: slot.end_time })),
     session30Price: Math.round((row.session_30_price_cents ?? 5500) / 100),
     session60Price: Math.round((row.session_60_price_cents ?? 9000) / 100),
   } as Coach;

@@ -90,7 +90,8 @@ export default function AdminPayments() {
               </View>
             ) : (
               bookings.slice(0, 20).map((b, i) => {
-                const gross = (b.price ?? 0) / 100;
+                // b.price is already in dollars (coachRepository converts from price_cents).
+                const gross = b.price ?? 0;
                 const fee = gross * PLATFORM_FEE;
                 return (
                   <View key={i} style={[styles.txRow, { backgroundColor: colors.card, borderColor: colors.border }]}>

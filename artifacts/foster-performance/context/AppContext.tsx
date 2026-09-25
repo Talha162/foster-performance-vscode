@@ -97,6 +97,14 @@ export interface Review {
   date: string;
 }
 
+export interface CoachAvailabilitySlot {
+  /** 0 = Sunday, matching Date.getDay(). */
+  weekday: number;
+  /** "HH:MM:SS" in the coach's configured timezone. */
+  startTime: string;
+  endTime: string;
+}
+
 export interface Coach {
   id: string;
   name: string;
@@ -113,7 +121,10 @@ export interface Coach {
   initials: string;
   color: string;
   coachType: 'personal' | 'strength' | 'nutrition' | 'speed' | 'rehab';
+  /** Short day labels ("Mon") for display chips. */
   availability: string[];
+  /** Active availability windows, used to derive bookable days and time slots. */
+  availabilitySlots: CoachAvailabilitySlot[];
   session30Price: number;
   session60Price: number;
 }
@@ -224,7 +235,7 @@ interface AppContextType {
   addProgressEntry: (entry: Omit<ProgressEntry, 'id'>) => void;
   logWorkout: (programId: string) => void;
   addBooking: (booking: Omit<Booking, 'id' | 'createdAt'>) => void;
-  cancelBooking: (bookingId: string, cancellationToken: string) => Promise<{ refunded: boolean; partial: boolean }>;
+  cancelBooking: (bookingId: string) => Promise<void>;
 }
 
 const AppContext = createContext<AppContextType | null>(null);
@@ -369,31 +380,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setBookings((current) => [newBooking, ...current]);
   }, [user]);
 
-  const cancelBooking = useCallback(async (
-    bookingId: string,
-    cancellationToken: string
-  ): Promise<{ refunded: boolean; partial: boolean }> => {
+  // Cancelling marks the booking cancelled; it does not issue a refund. Refunds
+  // would need Stripe, which is not wired up, so this deliberately reports no
+  // refund outcome rather than returning flags the caller could present as one.
+  const cancelBooking = useCallback(async (bookingId: string): Promise<void> => {
     const booking = bookings.find((b) => b.id === bookingId);
 
-    let refunded = false;
-    let partial = false;
-
     if (booking?.serverId) {
-      // Call the server to cancel and trigger the refund.
-      // Throws on network error or non-2xx response — caller must handle the error
-      // and must NOT update local state so the booking stays "upcoming".
+      // Throws on failure — the caller must not update local state in that case,
+      // so the booking stays "upcoming" rather than silently appearing cancelled.
       await cancelSupabaseBooking(booking.serverId);
-
-      refunded = false;
-      partial = false;
     }
-    // Bookings without a serverId/cancellationToken (e.g. demo/offline) cancel locally only.
 
-    const updated = bookings.map((b) =>
+    setBookings((current) => current.map((b) =>
       b.id === bookingId ? { ...b, status: 'cancelled' as const } : b
-    );
-    setBookings(updated);
-    return { refunded, partial };
+    ));
   }, [bookings]);
 
   const contextValue = useMemo<AppContextType>(() => ({

@@ -110,32 +110,13 @@ export default function ProfileScreen() {
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
             setCancellingId(bookingId);
             try {
-              const target = bookings.find((b) => b.id === bookingId);
-              const { refunded, partial } = await cancelBooking(
-                bookingId,
-                target?.cancellationToken ?? ''
-              );
+              await cancelBooking(bookingId);
               setCancellingId(null);
-
-              if (refunded && partial) {
-                Alert.alert(
-                  'Session Cancelled',
-                  'Your session has been cancelled. A 50% refund has been issued and will appear in 5–10 business days.',
-                  [{ text: 'OK' }]
-                );
-              } else if (refunded) {
-                Alert.alert(
-                  'Session Cancelled',
-                  'Your session has been cancelled and a full refund has been issued. It will appear in 5–10 business days.',
-                  [{ text: 'OK' }]
-                );
-              } else {
-                Alert.alert(
-                  'Session Cancelled',
-                  'Your session has been cancelled. If you were charged, please contact support for a refund.',
-                  [{ text: 'OK' }]
-                );
-              }
+              Alert.alert(
+                'Session Cancelled',
+                'Your session has been cancelled. If you were charged, please contact support for a refund.',
+                [{ text: 'OK' }]
+              );
             } catch {
               setCancellingId(null);
               Alert.alert('Error', 'Could not cancel the session. Please try again.', [{ text: 'OK' }]);
@@ -190,7 +171,7 @@ export default function ProfileScreen() {
 
         {/* Stats */}
         <View style={[styles.statsCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <StatItem value={`${workoutLogs.length + 14}`} label="Workouts" />
+          <StatItem value={`${workoutLogs.length}`} label="Workouts" />
           <View style={[styles.statDiv, { backgroundColor: colors.border }]} />
           <StatItem value={`${user?.streakDays ?? 0}`} label="Day Streak" />
           <View style={[styles.statDiv, { backgroundColor: colors.border }]} />
