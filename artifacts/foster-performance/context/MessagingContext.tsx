@@ -25,6 +25,8 @@ export interface Conversation {
   lastTimestamp: string;
   unreadForMember: number;
   unreadForCoach: number;
+  /** Who blocked the thread, if anyone. Nobody can post while this is set. */
+  blockedBy: string | null;
 }
 
 interface MessagingContextType {
@@ -47,6 +49,8 @@ interface MessagingContextType {
   markRead: (convId: string, readerRole: 'member' | 'coach') => Promise<void>;
   /** Files a moderation report. Pass messageId to report one message rather than the thread. */
   reportConversation: (opts: { convId: string; reason: string; details?: string; messageId?: string }) => Promise<void>;
+  /** Blocking silences the thread for both sides; only the blocker can lift it. */
+  setConversationBlocked: (convId: string, blocked: boolean) => Promise<void>;
   refreshConversations: () => Promise<void>;
   unreadForRole: (role: 'member' | 'coach', userId: string, coachApiId?: string) => number;
 }
@@ -58,6 +62,7 @@ type ConversationRow = {
   member_id: string;
   coach_id: string;
   last_message_at: string | null;
+  blocked_by: string | null;
   member: { full_name: string } | null;
   coach: { full_name: string } | null;
   messages: Array<{
@@ -80,7 +85,7 @@ export function MessagingProvider({ children }: { children: React.ReactNode }) {
     const { data, error } = await supabase
       .from('conversations')
       .select(`
-        id, member_id, coach_id, last_message_at,
+        id, member_id, coach_id, last_message_at, blocked_by,
         member:profiles!conversations_member_id_fkey(full_name),
         coach:profiles!conversations_coach_id_fkey(full_name),
         messages(body, created_at, sender_id, read_at)
@@ -102,6 +107,7 @@ export function MessagingProvider({ children }: { children: React.ReactNode }) {
         lastTimestamp: latest?.created_at ?? row.last_message_at ?? '',
         unreadForMember: row.member_id === user.id ? unread : 0,
         unreadForCoach: row.coach_id === user.id ? unread : 0,
+        blockedBy: row.blocked_by ?? null,
       };
     }));
   }, [user]);
@@ -229,6 +235,15 @@ export function MessagingProvider({ children }: { children: React.ReactNode }) {
     if (error) throw new Error(error.message);
   }, [conversations, user]);
 
+  const setConversationBlocked = useCallback(async (convId: string, blocked: boolean) => {
+    const { error } = await supabase.rpc('set_conversation_block', {
+      p_conversation_id: convId,
+      p_blocked: blocked,
+    });
+    if (error) throw new Error(error.message);
+    await refreshConversations();
+  }, [refreshConversations]);
+
   const unreadForRole = useCallback((role: 'member' | 'coach', userId: string, coachApiId?: string) => {
     return conversations
       .filter((conversation) => role === 'member'
@@ -245,6 +260,7 @@ export function MessagingProvider({ children }: { children: React.ReactNode }) {
       openOrCreateConversation,
       markRead,
       reportConversation,
+      setConversationBlocked,
       refreshConversations,
       unreadForRole,
     }}>

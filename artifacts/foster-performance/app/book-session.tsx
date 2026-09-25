@@ -117,6 +117,7 @@ export default function BookSessionScreen() {
             id: coachId, name, initials, color,
             session30Price: s30, session60Price: s60,
             availabilitySlots: c.availabilitySlots ?? [],
+            unavailableDates: c.unavailableDates ?? [],
           });
         }
       } catch { /* will fall through to null coach */ }
@@ -132,9 +133,13 @@ export default function BookSessionScreen() {
   const availabilitySlots: CoachAvailabilitySlot[] = coach?.availabilitySlots ?? [];
   const hasAvailability = availabilitySlots.length > 0;
 
-  const filteredDays = hasAvailability
+  // A closed date overrides the weekly pattern, so a coach can mark a holiday
+  // without editing the recurring schedule.
+  const closedDates: string[] = coach?.unavailableDates ?? [];
+  const filteredDays = (hasAvailability
     ? NEXT_DAYS.filter((d) => availabilitySlots.some((slot) => slot.weekday === d.weekday))
-    : NEXT_DAYS;
+    : NEXT_DAYS
+  ).filter((d) => !closedDates.includes(d.value));
 
   const [sessionLength, setSessionLength] = useState<30 | 60>(
     initialLength === '30' ? 30 : 60

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -57,6 +57,8 @@ export default function CoachCalendar() {
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<Date | null>(null);
   const [leadTime, setLeadTime] = useState(24);
+  const [closedDates, setClosedDates] = useState<string[]>([]);
+  const [closingDate, setClosingDate] = useState<string | null>(null);
   const [bufferTime, setBufferTime] = useState(15);
   const [cancellationWindow, setCancellationWindow] = useState(12);
   const [exceptions, setExceptions] = useState([
@@ -87,6 +89,56 @@ export default function CoachCalendar() {
       finally { setLoading(false); }
     })();
   }, [user]);
+
+  /** The next fortnight, which is the window members can book into. */
+  const upcomingDates = React.useMemo(() => Array.from({ length: 14 }, (_, offset) => {
+    const value = new Date();
+    value.setDate(value.getDate() + offset + 1);
+    const iso = `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`;
+    return {
+      iso,
+      weekday: value.toLocaleDateString(undefined, { weekday: 'short' }),
+      day: value.getDate(),
+    };
+  }), []);
+
+  const loadClosedDates = useCallback(async () => {
+    if (!user) return;
+    const { data, error } = await supabase
+      .from('coach_availability_exceptions')
+      .select('unavailable_on')
+      .eq('coach_id', user.id)
+      .gte('unavailable_on', new Date().toISOString().slice(0, 10));
+    if (error) {
+      console.error('[calendar] could not load closed dates:', error.message);
+      return;
+    }
+    setClosedDates((data ?? []).map((row) => row.unavailable_on));
+  }, [user]);
+
+  useEffect(() => { void loadClosedDates(); }, [loadClosedDates]);
+
+  const toggleClosedDate = async (iso: string) => {
+    if (!user || closingDate) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setClosingDate(iso);
+    const wasClosed = closedDates.includes(iso);
+    try {
+      if (wasClosed) {
+        const { error } = await supabase.from('coach_availability_exceptions')
+          .delete().eq('coach_id', user.id).eq('unavailable_on', iso);
+        if (error) throw new Error(error.message);
+        setClosedDates((current) => current.filter((value) => value !== iso));
+      } else {
+        const { error } = await supabase.from('coach_availability_exceptions')
+          .insert({ coach_id: user.id, unavailable_on: iso });
+        if (error) throw new Error(error.message);
+        setClosedDates((current) => [...current, iso]);
+      }
+    } catch (error: any) {
+      Alert.alert('Could not update that date', error?.message ?? 'Please try again.');
+    } finally { setClosingDate(null); }
+  };
 
   const handleSave = async () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -295,6 +347,41 @@ export default function CoachCalendar() {
         </View>
 
         <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <Text style={[styles.cardTitle, { color: colors.foreground }]}>Closed dates</Text>
+          <Text style={[styles.cardSub, { color: colors.mutedForeground }]}>
+            Tap a day to close it. Closing a day overrides your weekly hours, so members cannot book it at all.
+          </Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.closedScroll} contentContainerStyle={styles.closedRow}>
+            {upcomingDates.map((item) => {
+              const isClosed = closedDates.includes(item.iso);
+              return (
+                <Pressable
+                  key={item.iso}
+                  onPress={() => toggleClosedDate(item.iso)}
+                  disabled={closingDate === item.iso}
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ checked: isClosed }}
+                  accessibilityLabel={`${item.weekday} ${item.day}, ${isClosed ? 'closed' : 'open'}`}
+                  style={[styles.closedChip, {
+                    backgroundColor: isClosed ? colors.destructive + '18' : colors.background,
+                    borderColor: isClosed ? colors.destructive : colors.border,
+                    opacity: closingDate === item.iso ? 0.5 : 1,
+                  }]}
+                >
+                  <Text style={[styles.timeText, { color: isClosed ? colors.destructive : colors.mutedForeground }]}>{item.weekday}</Text>
+                  <Text style={[styles.dayLabel, { color: isClosed ? colors.destructive : colors.foreground }]}>{item.day}</Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+          <Text style={[styles.cardSub, { color: colors.mutedForeground }]}>
+            {closedDates.length === 0
+              ? 'No closed days in the next two weeks.'
+              : `${closedDates.length} day${closedDates.length === 1 ? '' : 's'} closed.`}
+          </Text>
+        </View>
+
+        <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <Text style={[styles.cardTitle, { color: colors.foreground }]}>Calendar Sync</Text>
           <View style={styles.settingRow}><MaterialCommunityIcons name="calendar-sync" size={24} color={colors.primary} /><View style={{ flex: 1 }}><Text style={[styles.dayLabel, { color: colors.foreground }]}>External calendar not connected</Text><Text style={[styles.cardSub, { color: colors.mutedForeground }]}>Connection and conflict imports will be enabled in Milestone 2.</Text></View></View>
           <Pressable onPress={() => Alert.alert('Calendar provider preview', 'Google, Apple, and Outlook connection will launch through a secure provider flow in Milestone 2.')} style={[styles.syncBtn, { borderColor: colors.border }]}><Text style={[styles.addText, { color: colors.foreground }]}>Preview connection flow</Text></Pressable>
@@ -338,5 +425,8 @@ const styles = StyleSheet.create({
   sectionHead: { flexDirection: 'row', alignItems: 'center', gap: 10 }, addBtn: { minHeight: 40, borderRadius: 10, borderWidth: 1, paddingHorizontal: 11, flexDirection: 'row', alignItems: 'center', gap: 4 }, addText: { fontSize: 12, fontFamily: 'Inter_700Bold' },
   exception: { minHeight: 58, borderTopWidth: 1, flexDirection: 'row', alignItems: 'center', gap: 10 }, iconButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   policy: { gap: 7, paddingTop: 4 }, policyOptions: { gap: 7 }, policyChip: { minHeight: 38, minWidth: 58, borderWidth: 1, borderRadius: 10, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 9 },
+  closedScroll: { flexGrow: 0, flexShrink: 0 },
+  closedRow: { gap: 8, alignItems: 'center', paddingVertical: 4 },
+  closedChip: { minWidth: 52, paddingVertical: 8, paddingHorizontal: 10, borderRadius: 12, borderWidth: 1, alignItems: 'center', gap: 2 },
   syncBtn: { minHeight: 44, borderWidth: 1, borderRadius: 10, alignItems: 'center', justifyContent: 'center' }, conflict: { flexDirection: 'row', gap: 9, padding: 11, borderWidth: 1, borderRadius: 10, alignItems: 'flex-start' },
 });
