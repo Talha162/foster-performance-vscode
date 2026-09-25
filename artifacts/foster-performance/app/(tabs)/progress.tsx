@@ -137,7 +137,7 @@ export default function ProgressScreen() {
         </View>
         <View style={styles.statsRow}>
           <StatCard label="This Week" value={thisWeekLogs.length} unit="sessions" />
-          <StatCard label="Total Workouts" value={workoutLogs.length + 14} accent />
+          <StatCard label="Total Workouts" value={workoutLogs.length} accent />
         </View>
 
         {/* Weight Chart */}

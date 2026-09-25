@@ -36,44 +36,6 @@ function inferCoachType(specialties: string[], services: string[]): Coach['coach
   return 'personal';
 }
 
-function normalizeApiCoach(raw: any): Coach {
-  const nameParts = (raw.name as string).split(' ');
-  const initials = nameParts.map((p: string) => p[0] ?? '').join('').slice(0, 2).toUpperCase();
-  // weeklyAvailability is normalised to { days, activeTimes, sessionDurationMins } by the API
-  const avail = (raw.weeklyAvailability?.days ?? {}) as Record<string, boolean>;
-  const dayLabels: Record<string, string> = {
-    Monday: 'Mon', Tuesday: 'Tue', Wednesday: 'Wed', Thursday: 'Thu',
-    Friday: 'Fri', Saturday: 'Sat', Sunday: 'Sun',
-  };
-  const availability = Object.keys(avail)
-    .filter((d) => avail[d])
-    .map((d) => dayLabels[d] ?? d);
-
-  const prices = raw.prices as { session30?: number | null; session60?: number | null } ?? {};
-
-  return {
-    id: raw.id as string,                    // already "api_N"
-    name: raw.name,
-    title: raw.title || 'Certified Coach',
-    bio: raw.bio || '',
-    initials,
-    color: hashColor(raw.id),
-    isPremium: false,
-    rating: 4.9,
-    clients: 0,
-    experience: Number(raw.experienceYears) || 1,
-    coachType: inferCoachType(raw.specialties ?? [], raw.services ?? []),
-    specialties: (raw.specialties as string[]) ?? [],
-    specialty: ((raw.specialties as string[]) ?? [])[0] ?? '',
-    credentials: raw.certifications
-      ? String(raw.certifications).split(/,\s*/).filter(Boolean)
-      : [],
-    availability: availability.length ? availability : ['Mon', 'Wed', 'Fri'],
-    session30Price: prices.session30 ?? 55,
-    session60Price: prices.session60 ?? 90,
-    reviews: [],
-  } as Coach;
-}
 
 // ─── Filter chips ─────────────────────────────────────────────────────────────
 

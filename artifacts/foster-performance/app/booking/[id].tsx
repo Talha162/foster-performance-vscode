@@ -36,7 +36,7 @@ export default function BookingDetailScreen() {
     if (!reason) { Alert.alert('Choose a reason', 'Select the reason for cancellation.'); return; }
     setBusy(true);
     try {
-      await cancelBooking(booking.id, booking.cancellationToken ?? 'local-preview');
+      await cancelBooking(booking.id);
       setMode('success');
     } catch (error: any) { Alert.alert('Cancellation failed', error?.message ?? 'Please try again or contact support.'); }
     finally { setBusy(false); }

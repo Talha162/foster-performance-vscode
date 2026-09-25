@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -18,7 +18,7 @@ import * as WebBrowser from 'expo-web-browser';
 import { useColors } from '@/hooks/useColors';
 import { BackgroundLayer } from '@/components/BackgroundLayer';
 import { ScreenState } from '@/components/ScreenState';
-import { useApp } from '@/context/AppContext';
+import { useApp, type CoachAvailabilitySlot } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import { fetchCoach } from '@/lib/coachRepository';
 import { supabase } from '@/lib/supabase';
@@ -29,7 +29,7 @@ const TIME_SLOTS = [
 ];
 
 function getNextDays(n: number) {
-  const days: { label: string; short: string; value: string; fullDay: string }[] = [];
+  const days: { label: string; short: string; value: string; fullDay: string; weekday: number }[] = [];
   const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const fullDayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
   const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -41,6 +41,7 @@ function getNextDays(n: number) {
       short: dayNames[d.getDay()],
       value: d.toISOString().split('T')[0],
       fullDay: fullDayNames[d.getDay()],
+      weekday: d.getDay(),
     });
   }
   return days;
@@ -48,7 +49,21 @@ function getNextDays(n: number) {
 
 const NEXT_DAYS = getNextDays(7);
 
-/** Derive the API base URL from the Expo public domain env var. */
+/** "9:00 AM" -> minutes since midnight, or null if the label is malformed. */
+function slotLabelToMinutes(label: string): number | null {
+  const match = label.match(/^(\d{1,2}):(\d{2})\s+(AM|PM)$/i);
+  if (!match) return null;
+  let hour = Number(match[1]) % 12;
+  if (match[3].toUpperCase() === 'PM') hour += 12;
+  return hour * 60 + Number(match[2]);
+}
+
+/** Postgres "HH:MM:SS" -> minutes since midnight. */
+function timeStringToMinutes(value: string): number {
+  const [hours, minutes] = value.split(':');
+  return Number(hours) * 60 + Number(minutes);
+}
+
 function bookingStart(date: string, time: string) {
   const match = time.match(/^(\d{1,2}):(\d{2})\s+(AM|PM)$/i);
   if (!match) throw new Error('Invalid session time.');
@@ -98,9 +113,11 @@ export default function BookSessionScreen() {
           // Null means the coach hasn't priced that length — keep as null so the UI can hide it.
           const s30: number | null = c.session30Price;
           const s60: number | null = c.session60Price;
-          // weeklyAvailability is normalised by formatCoach to { days, activeTimes, sessionDurationMins }
-          const weeklyAvailability = { days: Object.fromEntries((c.availability ?? []).map((day: string) => [day, true])), activeTimes: {} };
-          setApiCoach({ id: coachId, name, initials, color, session30Price: s30, session60Price: s60, weeklyAvailability });
+          setApiCoach({
+            id: coachId, name, initials, color,
+            session30Price: s30, session60Price: s60,
+            availabilitySlots: c.availabilitySlots ?? [],
+          });
         }
       } catch { /* will fall through to null coach */ }
       finally { setCoachLoading(false); }
@@ -109,27 +126,15 @@ export default function BookSessionScreen() {
 
   const coach = localCoach ?? apiCoach;
 
-  // --- Availability filtering (API coaches only) ---
-  // apiCoach.weeklyAvailability is normalised to { days: Record<string,bool>, activeTimes: Record<string,bool> }
-  // AppContext coaches have no availability data so all days/times remain available.
-  const availDays: Record<string, boolean> | null =
-    apiCoach?.weeklyAvailability?.days ?? null;
-  const availTimes: Record<string, boolean> | null =
-    apiCoach?.weeklyAvailability?.activeTimes ?? null;
+  // --- Availability filtering ---
+  // Derived from the coach's coach_availability windows. A coach who has set no
+  // windows stays fully open rather than showing an empty calendar.
+  const availabilitySlots: CoachAvailabilitySlot[] = coach?.availabilitySlots ?? [];
+  const hasAvailability = availabilitySlots.length > 0;
 
-  // Use availability config when it has been explicitly set (has keys), even if
-  // all values are false — a coach with all days disabled shows no bookable dates.
-  // Null (AppContext coaches) falls back to showing everything.
-  const hasDayConfig = availDays !== null && Object.keys(availDays).length > 0;
-  const hasTimeConfig = availTimes !== null && Object.keys(availTimes).length > 0;
-
-  const filteredDays = hasDayConfig
-    ? NEXT_DAYS.filter((d) => availDays![d.fullDay] === true)
+  const filteredDays = hasAvailability
+    ? NEXT_DAYS.filter((d) => availabilitySlots.some((slot) => slot.weekday === d.weekday))
     : NEXT_DAYS;
-
-  const filteredTimes = hasTimeConfig
-    ? TIME_SLOTS.filter((t) => availTimes![t] === true)
-    : TIME_SLOTS;
 
   const [sessionLength, setSessionLength] = useState<30 | 60>(
     initialLength === '30' ? 30 : 60
@@ -138,6 +143,22 @@ export default function BookSessionScreen() {
   const [selectedTime, setSelectedTime] = useState('');
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+
+  // Offer a slot only when the whole session fits inside one of the coach's
+  // windows for that weekday, so a 60-minute booking cannot run past the end.
+  const filteredTimes = useMemo(() => {
+    if (!hasAvailability) return TIME_SLOTS;
+    const day = NEXT_DAYS.find((d) => d.value === selectedDate);
+    if (!day) return [];
+    const windows = availabilitySlots.filter((slot) => slot.weekday === day.weekday);
+    return TIME_SLOTS.filter((label) => {
+      const start = slotLabelToMinutes(label);
+      if (start === null) return false;
+      return windows.some((w) =>
+        start >= timeStringToMinutes(w.startTime) &&
+        start + sessionLength <= timeStringToMinutes(w.endTime));
+    });
+  }, [hasAvailability, availabilitySlots, selectedDate, sessionLength]);
 
   useEffect(() => {
     if (filteredDays.length > 0 && !filteredDays.some((day) => day.value === selectedDate)) {
