@@ -175,6 +175,18 @@ export async function createBooking(input: {
   return data.id as string;
 }
 
+/**
+ * Moves a booking. Members are not granted starts_at/ends_at directly, so this
+ * goes through a definer function that validates ownership and the new time.
+ */
+export async function rescheduleBooking(bookingId: string, startsAt: Date): Promise<void> {
+  const { error } = await supabase.rpc('reschedule_booking', {
+    p_booking_id: bookingId,
+    p_starts_at: startsAt.toISOString(),
+  });
+  if (error) throw new Error(error.message);
+}
+
 export async function cancelBooking(bookingId: string) {
   const { error } = await supabase.from('bookings').update({
     status: 'cancelled',

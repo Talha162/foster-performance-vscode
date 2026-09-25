@@ -4,6 +4,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useApp } from '@/context/AppContext';
+import { rescheduleBooking } from '@/lib/coachRepository';
 import { useColors } from '@/hooks/useColors';
 import { BackgroundLayer } from '@/components/BackgroundLayer';
 import { AppButton } from '@/components/AppButton';
@@ -11,7 +12,27 @@ import { InfoRow, MockNotice, PageHeader, SectionCard, StatusPill } from '@/comp
 import { ScreenState } from '@/components/ScreenState';
 import { radii, spacing, typography } from '@/constants/colors';
 
-const dates = ['Wed 26', 'Thu 27', 'Fri 28', 'Sat 29', 'Sun 30'];
+/** The next seven days, so a chosen label maps to a real date. */
+function upcomingDates() {
+  const names = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  return Array.from({ length: 7 }, (_, offset) => {
+    const value = new Date();
+    value.setDate(value.getDate() + offset + 1);
+    value.setHours(0, 0, 0, 0);
+    return { label: `${names[value.getDay()]} ${value.getDate()}`, value };
+  });
+}
+
+/** "2:00 PM" on the chosen day, in the device timezone. */
+function combine(day: Date, label: string): Date | null {
+  const match = label.match(/^(\d{1,2}):(\d{2})\s+(AM|PM)$/i);
+  if (!match) return null;
+  let hour = Number(match[1]) % 12;
+  if (match[3].toUpperCase() === 'PM') hour += 12;
+  const result = new Date(day);
+  result.setHours(hour, Number(match[2]), 0, 0);
+  return result;
+}
 const times = ['9:00 AM', '10:00 AM', '11:00 AM', '1:00 PM', '2:00 PM', '4:00 PM'];
 const reasons = ['Schedule conflict', 'No longer needed', 'Illness or injury', 'Booked by mistake', 'Other'];
 
@@ -22,7 +43,8 @@ export default function BookingDetailScreen() {
   const insets = useSafeAreaInsets();
   const booking = bookings.find((item) => item.id === id || item.serverId === id);
   const [mode, setMode] = useState<'detail' | 'reschedule' | 'cancel' | 'success'>('detail');
-  const [date, setDate] = useState(dates[1]);
+  const dates = useMemo(upcomingDates, []);
+  const [date, setDate] = useState(() => upcomingDates()[0]);
   const [time, setTime] = useState(times[1]);
   const [reason, setReason] = useState('');
   const [note, setNote] = useState('');
@@ -31,6 +53,23 @@ export default function BookingDetailScreen() {
   const refundState = useMemo(() => mode === 'cancel' ? 'Full refund expected when cancelled more than 24 hours before the session. Final eligibility is confirmed by the payment service.' : '', [mode]);
 
   if (!booking) return <ScreenState title="Booking unavailable" message="This appointment is not stored on this device. Refresh your bookings after signing in." onBack={() => router.back()} />;
+
+  const confirmReschedule = async () => {
+    const startsAt = combine(date.value, time);
+    if (!startsAt) { Alert.alert('Pick a time', 'Choose a new time for the session.'); return; }
+    setBusy(true);
+    try {
+      await rescheduleBooking(booking.serverId ?? booking.id, startsAt);
+      Alert.alert('Session rescheduled', `Moved to ${date.label} at ${time}.`);
+      setMode('detail');
+    } catch (error: any) {
+      // The overlap constraint surfaces here when the coach is already booked.
+      const message = /exclu|overlap|conflict/i.test(error?.message ?? '')
+        ? 'Your coach already has a session at that time. Pick another slot.'
+        : error?.message ?? 'Please try again.';
+      Alert.alert('Could not reschedule', message);
+    } finally { setBusy(false); }
+  };
 
   const confirmCancel = async () => {
     if (!reason) { Alert.alert('Choose a reason', 'Select the reason for cancellation.'); return; }
@@ -56,14 +95,14 @@ export default function BookingDetailScreen() {
         {mode === 'detail' && <>
           <SectionCard title="Appointment"><InfoRow icon="calendar" label="Date" value={booking.date} /><InfoRow icon="clock-outline" label="Time" value={`${booking.time} · ${timezone}`} /><InfoRow icon="timer-outline" label="Duration" value={`${booking.sessionLength} minutes`} /><InfoRow icon="credit-card-outline" label="Payment" value={`Paid · $${booking.price.toFixed(2)}`} /><InfoRow icon="receipt-text-outline" label="Receipt" value="FP preview receipt · invoice available after provider sync" /></SectionCard>
           <SectionCard title="Session actions"><InfoRow icon="video-outline" label="Join session" value="Available near the scheduled start time" onPress={() => Alert.alert('Session not started', 'The Join button becomes available shortly before the appointment.')} /><InfoRow icon="calendar-edit" label="Reschedule" value="Choose another available date and time" onPress={() => setMode('reschedule')} /><InfoRow icon="lifebuoy" label="Report a session issue" value="Coach absent, member absent, connection or payment issue" onPress={() => Alert.alert('Support preview', 'A support case form will be submitted when the support service is connected.')} /><InfoRow icon="calendar-remove" label="Cancel appointment" value="Refund depends on cancellation timing" danger onPress={() => setMode('cancel')} /></SectionCard>
-          <MockNotice>Booking detail actions are complete frontend previews. Rescheduling, receipts and support submission require Milestone 2 endpoints.</MockNotice>
+          <MockNotice>Rescheduling and cancelling are live. Receipts and support submission still need the payment and support services connected.</MockNotice>
         </>}
 
         {mode === 'reschedule' && <>
           <SectionCard title="Existing appointment" subtitle={`${booking.date} · ${booking.time} · ${booking.sessionLength} minutes`}><StatusPill label="No price difference" tone="success" /></SectionCard>
-          <SectionCard title="Select a new date"><View style={styles.choices}>{dates.map((item) => <Pressable key={item} onPress={() => setDate(item)} style={[styles.choice, { borderColor: date === item ? colors.primary : colors.border, backgroundColor: date === item ? colors.primary + '18' : colors.muted }]} accessibilityRole="radio" accessibilityState={{ checked: date === item }}><Text style={{ color: date === item ? colors.primary : colors.foreground }}>{item}</Text></Pressable>)}</View></SectionCard>
+          <SectionCard title="Select a new date"><View style={styles.choices}>{dates.map((item) => <Pressable key={item.label} onPress={() => setDate(item)} style={[styles.choice, { borderColor: date.label === item.label ? colors.primary : colors.border, backgroundColor: date.label === item.label ? colors.primary + '18' : colors.muted }]} accessibilityRole="radio" accessibilityState={{ checked: date.label === item.label }}><Text style={{ color: date.label === item.label ? colors.primary : colors.foreground }}>{item.label}</Text></Pressable>)}</View></SectionCard>
           <SectionCard title="Select a new time" subtitle={timezone}><View style={styles.choices}>{times.map((item) => <Pressable key={item} onPress={() => setTime(item)} style={[styles.choice, { borderColor: time === item ? colors.primary : colors.border, backgroundColor: time === item ? colors.primary + '18' : colors.muted }]} accessibilityRole="radio" accessibilityState={{ checked: time === item }}><Text style={{ color: time === item ? colors.primary : colors.foreground }}>{item}</Text></Pressable>)}</View></SectionCard>
-          <AppButton label="Confirm Reschedule" icon="calendar-check" onPress={() => { Alert.alert('Session rescheduled', `Preview updated to ${date} at ${time}. Backend persistence will be connected in Milestone 2.`); setMode('detail'); }} /><AppButton label="Keep Existing Time" variant="secondary" onPress={() => setMode('detail')} />
+          <AppButton label="Confirm Reschedule" icon="calendar-check" loading={busy} onPress={confirmReschedule} /><AppButton label="Keep Existing Time" variant="secondary" onPress={() => setMode('detail')} />
         </>}
 
         {mode === 'cancel' && <>
