@@ -25,7 +25,7 @@ function toCoach(row: any): Coach {
     credentials: row.credentials ?? [],
     specialties,
     rating: Number(row.rating ?? 0),
-    reviews: (row.coach_reviews ?? []).map((review: any) => ({
+    reviews: (row.profile?.coach_reviews ?? []).map((review: any) => ({
       id: review.id,
       author: review.member?.full_name ?? 'Member',
       rating: review.rating,
@@ -38,33 +38,54 @@ function toCoach(row: any): Coach {
     initials: name.split(' ').map((part: string) => part[0] ?? '').join('').slice(0, 2).toUpperCase(),
     color: hashColor(row.user_id),
     coachType: row.coach_type ?? 'personal',
-    availability: Array.from(new Set((row.coach_availability ?? []).filter((slot: any) => slot.is_active).map((slot: any) => dayLabel(slot.weekday)))),
+    availability: Array.from(new Set((row.profile?.coach_availability ?? []).filter((slot: any) => slot.is_active).map((slot: any) => dayLabel(slot.weekday)))),
     session30Price: Math.round((row.session_30_price_cents ?? 5500) / 100),
     session60Price: Math.round((row.session_60_price_cents ?? 9000) / 100),
   } as Coach;
 }
 
-const coachSelect = `
-  *,
-  profile:profiles!coach_profiles_user_id_fkey(full_name, avatar_url),
-  coach_availability(*),
-  coach_reviews(id, rating, review_text, created_at, member:profiles!coach_reviews_member_id_fkey(full_name))
-`;
+async function hydrateCoaches(rows: any[]): Promise<Coach[]> {
+  if (rows.length === 0) return [];
+
+  const coachIds = rows.map((row) => row.user_id);
+  const [profilesResult, availabilityResult, reviewsResult] = await Promise.all([
+    supabase.from('profiles').select('id, full_name, avatar_url').in('id', coachIds),
+    supabase.from('coach_availability').select('*').in('coach_id', coachIds),
+    supabase.from('coach_reviews').select(`
+      id, coach_id, rating, review_text, created_at,
+      member:profiles!coach_reviews_member_id_fkey(full_name)
+    `).in('coach_id', coachIds),
+  ]);
+
+  const firstError = profilesResult.error ?? availabilityResult.error ?? reviewsResult.error;
+  if (firstError) throw new Error(firstError.message);
+
+  return rows.map((row) => toCoach({
+    ...row,
+    profile: {
+      ...(profilesResult.data ?? []).find((profile) => profile.id === row.user_id),
+      coach_availability: (availabilityResult.data ?? []).filter((slot) => slot.coach_id === row.user_id),
+      coach_reviews: (reviewsResult.data ?? []).filter((review) => review.coach_id === row.user_id),
+    },
+  }));
+}
 
 export async function fetchCoaches(): Promise<Coach[]> {
   const { data, error } = await supabase
     .from('coach_profiles')
-    .select(coachSelect)
+    .select('*')
     .eq('accepting_clients', true)
     .order('rating', { ascending: false });
   if (error) throw new Error(error.message);
-  return (data ?? []).map(toCoach);
+  return hydrateCoaches(data ?? []);
 }
 
 export async function fetchCoach(coachId: string): Promise<Coach | null> {
-  const { data, error } = await supabase.from('coach_profiles').select(coachSelect).eq('user_id', coachId).maybeSingle();
+  const { data, error } = await supabase.from('coach_profiles').select('*').eq('user_id', coachId).maybeSingle();
   if (error) throw new Error(error.message);
-  return data ? toCoach(data) : null;
+  if (!data) return null;
+  const [coach] = await hydrateCoaches([data]);
+  return coach;
 }
 
 export type BookingRow = {

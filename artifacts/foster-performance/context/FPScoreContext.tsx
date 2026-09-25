@@ -181,7 +181,7 @@ export function FPScoreProvider({ children }: { children: React.ReactNode }) {
       }));
       if (weightResult.data?.value) setWeights({ ...DEFAULT_WEIGHTS, ...(weightResult.data.value as Partial<FPScoreWeights>) });
     }).catch((error: any) => {
-      console.error('[FPScoreContext] Failed to load FP score data:', error?.message || error);
+      console.info('[FPScoreContext] Background refresh failed:', error?.message || error);
     });
   }, [user]);
 
