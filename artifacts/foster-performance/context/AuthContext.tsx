@@ -11,6 +11,7 @@ export interface User {
   name: string;
   email: string;
   accountType: AccountType;
+  avatarUrl?: string;
   onboardingComplete?: boolean;
   goal?: string;
   level?: 'Beginner' | 'Intermediate' | 'Advanced';
@@ -60,6 +61,7 @@ type ProfileRow = {
   id: string;
   email: string;
   full_name: string;
+  avatar_url: string | null;
   role: AccountType;
   onboarding_complete: boolean;
   goal: string | null;
@@ -102,6 +104,7 @@ async function loadUser(authUser: SupabaseAuthUser): Promise<User> {
     name: profile.full_name,
     email: profile.email,
     accountType: profile.role,
+    avatarUrl: profile.avatar_url ?? undefined,
     onboardingComplete: profile.onboarding_complete,
     goal: profile.goal ?? undefined,
     level: profile.level ?? undefined,
@@ -122,6 +125,7 @@ async function loadUser(authUser: SupabaseAuthUser): Promise<User> {
 const profileColumns: Partial<Record<keyof User, keyof ProfileRow>> = {
   name: 'full_name',
   email: 'email',
+  avatarUrl: 'avatar_url',
   onboardingComplete: 'onboarding_complete',
   goal: 'goal',
   level: 'level',

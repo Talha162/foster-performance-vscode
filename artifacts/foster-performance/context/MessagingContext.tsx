@@ -10,6 +10,8 @@ export interface Message {
   senderName: string;
   senderRole: 'member' | 'coach';
   text: string;
+  /** Storage path in message-attachments, not a URL; private and must be signed to view. */
+  attachmentPath?: string;
   timestamp: string;
 }
 
@@ -34,6 +36,7 @@ interface MessagingContextType {
     senderName: string;
     senderRole: 'member' | 'coach';
     text: string;
+    attachmentPath?: string;
   }) => Promise<void>;
   openOrCreateConversation: (opts: {
     memberUserId: string;
@@ -118,20 +121,33 @@ export function MessagingProvider({ children }: { children: React.ReactNode }) {
   const getMessages = useCallback(async (convId: string): Promise<Message[]> => {
     const { data, error } = await supabase
       .from('messages')
-      .select('id, conversation_id, sender_id, body, created_at, sender:profiles!messages_sender_id_fkey(full_name, role)')
+      .select('id, conversation_id, sender_id, body, attachment_url, created_at')
       .eq('conversation_id', convId)
       .order('created_at');
     if (error) throw new Error(error.message);
-    return (data ?? []).map((row: any) => ({
+    const rows = data ?? [];
+
+    const conversation = conversations.find((item) => item.id === convId);
+    const names = await supabase.rpc('public_display_profiles', {
+      p_user_ids: Array.from(new Set(rows.map((row: any) => row.sender_id))),
+    });
+    if (names.error) throw new Error(names.error.message);
+    const nameById = new Map<string, string>(
+      (names.data ?? []).map((row: any) => [row.id, row.full_name]),
+    );
+
+    return rows.map((row: any) => ({
       id: row.id,
       conversationId: row.conversation_id,
       senderId: row.sender_id,
-      senderName: row.sender?.full_name ?? 'User',
-      senderRole: row.sender?.role === 'member' ? 'member' : 'coach',
+      senderName: nameById.get(row.sender_id) ?? 'User',
+      // Role is positional in a two-person thread, so it needs no extra lookup.
+      senderRole: conversation && row.sender_id === conversation.coachApiId ? 'coach' : 'member',
       text: row.body,
+      attachmentPath: row.attachment_url ?? undefined,
       timestamp: row.created_at,
     }));
-  }, []);
+  }, [conversations]);
 
   const openOrCreateConversation = useCallback(async (opts: {
     memberUserId: string;
@@ -164,13 +180,16 @@ export function MessagingProvider({ children }: { children: React.ReactNode }) {
     senderName: string;
     senderRole: 'member' | 'coach';
     text: string;
+    attachmentPath?: string;
   }) => {
     const body = opts.text.trim();
-    if (!body || !user) return;
+    // An attachment can stand on its own, so only require text when there is none.
+    if ((!body && !opts.attachmentPath) || !user) return;
     const { error } = await supabase.from('messages').insert({
       conversation_id: opts.convId,
       sender_id: user.id,
-      body,
+      body: body || 'Sent an attachment',
+      attachment_url: opts.attachmentPath ?? null,
     });
     if (error) throw new Error(error.message);
     await refreshConversations();

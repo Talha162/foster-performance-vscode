@@ -21,8 +21,10 @@ import { Feather } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { useColors } from '@/hooks/useColors';
 import { BackgroundLayer } from '@/components/BackgroundLayer';
+import * as WebBrowser from 'expo-web-browser';
 import { useAuth } from '@/context/AuthContext';
 import { useMessaging, type Conversation, type Message } from '@/context/MessagingContext';
+import { pickImage, signedUrl, uploadMessageAttachment } from '@/lib/storage';
 
 export default function MessageThreadScreen() {
   const colors = useColors();
@@ -34,6 +36,7 @@ export default function MessageThreadScreen() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
+  const [attaching, setAttaching] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [blocked, setBlocked] = useState(false);
@@ -123,6 +126,41 @@ export default function MessageThreadScreen() {
         },
       ],
     );
+  };
+
+  const handleAttach = async () => {
+    if (!convId || !user || attaching) return;
+    try {
+      const picked = await pickImage();
+      if (!picked) return;
+      setAttaching(true);
+      const attachmentPath = await uploadMessageAttachment(user.id, convId, picked);
+      await sendMessage({
+        convId,
+        senderId: user.id,
+        senderName: user.name,
+        senderRole: myRole,
+        text: text.trim(),
+        attachmentPath,
+      });
+      setText('');
+      await load();
+    } catch (error: any) {
+      Alert.alert('Could not send attachment', error?.message ?? 'Please try again.');
+    } finally {
+      setAttaching(false);
+    }
+  };
+
+  /** Attachments live in a private bucket, so opening one needs a signed link. */
+  const openAttachment = async (path: string) => {
+    try {
+      const url = await signedUrl('message-attachments', path);
+      if (!url) throw new Error('The link could not be created.');
+      await WebBrowser.openBrowserAsync(url);
+    } catch (error: any) {
+      Alert.alert('Could not open attachment', error?.message ?? 'Please try again.');
+    }
   };
 
   const conversationMenu = () => Alert.alert('Conversation options', otherName || 'Conversation', [
@@ -270,6 +308,21 @@ export default function MessageThreadScreen() {
                         >
                           {msg.text}
                         </Text>
+                        {msg.attachmentPath ? (
+                          <Pressable
+                            onPress={() => openAttachment(msg.attachmentPath!)}
+                            accessibilityRole="button"
+                            accessibilityLabel="Open attachment"
+                            style={[styles.attachmentChip, {
+                              borderColor: isMine ? colors.primaryForeground + '55' : colors.border,
+                            }]}
+                          >
+                            <Feather name="paperclip" size={14} color={isMine ? colors.primaryForeground : colors.mutedForeground} />
+                            <Text style={[styles.attachmentChipText, { color: isMine ? colors.primaryForeground : colors.foreground }]}>
+                              View attachment
+                            </Text>
+                          </Pressable>
+                        ) : null}
                       </Pressable>
                       <Text
                         style={[
@@ -301,7 +354,7 @@ export default function MessageThreadScreen() {
             },
           ]}
         >
-          <Pressable onPress={() => Alert.alert('Attachment preview', 'Secure image and document attachments can connect here in Milestone 2.')} disabled={blocked} accessibilityRole="button" accessibilityLabel="Add attachment" style={styles.attachmentBtn}><Feather name="plus" size={22} color={blocked ? colors.border : colors.mutedForeground} /></Pressable>
+          <Pressable onPress={handleAttach} disabled={blocked || attaching} accessibilityRole="button" accessibilityLabel="Add attachment" style={styles.attachmentBtn}>{attaching ? <ActivityIndicator size="small" color={colors.mutedForeground} /> : <Feather name="plus" size={22} color={blocked ? colors.border : colors.mutedForeground} />}</Pressable>
           <View style={[styles.inputWrap, { backgroundColor: colors.card, borderColor: colors.border, opacity: blocked ? .5 : 1 }]}>
             <TextInput
               style={[styles.input, { color: colors.foreground }]}
@@ -378,5 +431,5 @@ const styles = StyleSheet.create({
   retryBtn: { paddingHorizontal: 20, paddingVertical: 10, borderRadius: 10, marginTop: 12 },
   retryBtnText: { fontSize: 14, fontFamily: 'Inter_600SemiBold' },
   replyPreview: { minHeight: 58, marginHorizontal: 16, marginTop: 8, paddingLeft: 12, borderWidth: 1, borderLeftWidth: 3, borderRadius: 10, flexDirection: 'row', alignItems: 'center' }, replyLabel: { fontSize: 11, fontFamily: 'Inter_700Bold' }, replyText: { fontSize: 12, fontFamily: 'Inter_400Regular', marginTop: 2 },
-  queueBanner: { minHeight: 42, marginHorizontal: 16, marginTop: 8, borderWidth: 1, borderRadius: 10, paddingHorizontal: 11, flexDirection: 'row', alignItems: 'center', gap: 8 }, queueText: { flex: 1, fontSize: 11, fontFamily: 'Inter_600SemiBold' }, attachmentBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
+  queueBanner: { minHeight: 42, marginHorizontal: 16, marginTop: 8, borderWidth: 1, borderRadius: 10, paddingHorizontal: 11, flexDirection: 'row', alignItems: 'center', gap: 8 }, queueText: { flex: 1, fontSize: 11, fontFamily: 'Inter_600SemiBold' }, attachmentBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }, attachmentChip: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8, paddingVertical: 6, paddingHorizontal: 10, borderRadius: 8, borderWidth: 1, alignSelf: 'flex-start' }, attachmentChipText: { fontSize: 12, fontFamily: 'Inter_600SemiBold' },
 });
