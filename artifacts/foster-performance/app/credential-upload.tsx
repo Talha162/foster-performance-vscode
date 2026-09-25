@@ -8,6 +8,7 @@ import {
   Text, TextInput, View,
 } from 'react-native';
 import { router } from 'expo-router';
+import * as WebBrowser from 'expo-web-browser';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
@@ -15,12 +16,15 @@ import { useColors } from '@/hooks/useColors';
 import { BackgroundLayer } from '@/components/BackgroundLayer';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/lib/supabase';
+import { pickImage, removeFile, signedUrl, uploadCredential } from '@/lib/storage';
 
 interface CredEntry {
   id: string;
   name: string;
   type: 'certification' | 'resume' | 'transcript' | 'photo';
   addedAt: string;
+  /** Path in the private credentials bucket. Absent on entries added before uploads existed. */
+  filePath?: string;
   placeholder: boolean;
   status?: 'uploaded' | 'processing' | 'verified' | 'rejected' | 'expired';
   feedback?: string;
@@ -41,6 +45,7 @@ export default function CredentialUploadScreen() {
   const [name, setName] = useState('');
   const [type, setType] = useState<CredEntry['type']>('certification');
   const [showAdd, setShowAdd] = useState(false);
+  const [busy, setBusy] = useState(false);
 
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
   const botPad = Platform.OS === 'web' ? 34 : insets.bottom;
@@ -59,19 +64,44 @@ export default function CredentialUploadScreen() {
   };
 
   const handleAdd = async () => {
-    if (!name.trim()) return;
+    if (!name.trim() || !user || busy) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    const entry: CredEntry = {
-      id: Date.now().toString(),
-      name: name.trim(),
-      type,
-      addedAt: new Date().toISOString(),
-      placeholder: true,
-      status: 'uploaded',
-    };
-    await save([...credentials, entry]);
-    setName('');
-    setShowAdd(false);
+    setBusy(true);
+    try {
+      const picked = await pickImage();
+      if (!picked) return;
+      const filePath = await uploadCredential(user.id, picked);
+      await save([...credentials, {
+        id: Date.now().toString(),
+        name: name.trim(),
+        type,
+        addedAt: new Date().toISOString(),
+        filePath,
+        placeholder: false,
+        status: 'uploaded',
+      }]);
+      setName('');
+      setShowAdd(false);
+    } catch (error: any) {
+      Alert.alert('Could not upload', error?.message ?? 'Please try again.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /** The bucket is private, so viewing needs a short-lived signed link. */
+  const handleView = async (cred: CredEntry) => {
+    if (!cred.filePath) {
+      Alert.alert('No document', 'This entry was added before file uploads, so only its details were saved.');
+      return;
+    }
+    try {
+      const url = await signedUrl('credentials', cred.filePath);
+      if (!url) throw new Error('The link could not be created.');
+      await WebBrowser.openBrowserAsync(url);
+    } catch (error: any) {
+      Alert.alert('Could not open document', error?.message ?? 'Please try again.');
+    }
   };
 
   const handleRemove = (id: string) => {
@@ -82,18 +112,16 @@ export default function CredentialUploadScreen() {
         style: 'destructive',
         onPress: async () => {
           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+          const target = credentials.find((c) => c.id === id);
           await save(credentials.filter((c) => c.id !== id));
+          // Remove the object too, so deleting an entry does not orphan a file.
+          if (target?.filePath) {
+            try { await removeFile('credentials', target.filePath); }
+            catch (error: any) { console.error('[credentials] file not removed:', error?.message ?? error); }
+          }
         },
       },
     ]);
-  };
-
-  const handleUploadPlaceholder = () => {
-    Alert.alert(
-      'Test Mode',
-      'Document uploads are stored as metadata only during testing. Real file upload will be available when the app launches.',
-      [{ text: 'OK' }]
-    );
   };
 
   const getIcon = (t: CredEntry['type']) =>
@@ -224,7 +252,7 @@ export default function CredentialUploadScreen() {
                 <Text style={[styles.credName, { color: colors.foreground }]}>{cred.name}</Text>
                 <Text style={[styles.credType, { color: colors.mutedForeground }]}>
                   {CRED_TYPES.find((ct) => ct.value === cred.type)?.label ?? cred.type}
-                  {cred.placeholder && ' · Metadata only'}
+                  {!cred.filePath && ' · Details only, no file'}
                 </Text>
                 <Pressable
                   onPress={() => cycleStatus(cred)}
@@ -238,7 +266,7 @@ export default function CredentialUploadScreen() {
               </View>
               <View style={styles.credActions}>
                 <Pressable
-                  onPress={handleUploadPlaceholder}
+                  onPress={() => handleView(cred)}
                   style={({ pressed }) => [styles.uploadBtn, { borderColor: colors.primary, opacity: pressed ? 0.7 : 1 }]}
                 >
                   <Feather name="upload" size={13} color={colors.primary} />

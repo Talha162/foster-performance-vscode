@@ -3,6 +3,7 @@ import {
   ActivityIndicator, Alert, KeyboardAvoidingView, Platform, Pressable,
   ScrollView, StyleSheet, Text, TextInput, View,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
@@ -10,6 +11,7 @@ import { useColors } from '@/hooks/useColors';
 import { BackgroundLayer } from '@/components/BackgroundLayer';
 import { ScreenState } from '@/components/ScreenState';
 import { useAuth } from '@/context/AuthContext';
+import { pickImage, uploadAvatar } from '@/lib/storage';
 
 export default function ProfileEditScreen() {
   const colors = useColors();
@@ -17,6 +19,8 @@ export default function ProfileEditScreen() {
   const { user, updateUser } = useAuth();
   const [name, setName] = useState(user?.name ?? '');
   const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [avatarUrl, setAvatarUrl] = useState(user?.avatarUrl);
 
   if (!user) {
     return (
@@ -28,6 +32,22 @@ export default function ProfileEditScreen() {
       />
     );
   }
+
+  const handleChangePhoto = async () => {
+    if (uploading) return;
+    try {
+      const picked = await pickImage({ square: true });
+      if (!picked) return;
+      setUploading(true);
+      const url = await uploadAvatar(user.id, picked);
+      await updateUser({ avatarUrl: url });
+      setAvatarUrl(url);
+    } catch (error: any) {
+      Alert.alert('Could not update photo', error?.message ?? 'Please try again.');
+    } finally {
+      setUploading(false);
+    }
+  };
 
   const handleSave = async () => {
     const trimmedName = name.trim();
@@ -63,9 +83,26 @@ export default function ProfileEditScreen() {
           keyboardShouldPersistTaps="handled"
           contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 32 }]}
         >
-          <View style={[styles.avatar, { backgroundColor: colors.primary + '22' }]}>
-            <MaterialCommunityIcons name="account-edit-outline" size={32} color={colors.primary} />
-          </View>
+          <Pressable
+            onPress={handleChangePhoto}
+            disabled={uploading}
+            accessibilityRole="button"
+            accessibilityLabel="Change profile photo"
+            style={[styles.avatar, { backgroundColor: colors.primary + '22', opacity: uploading ? 0.6 : 1 }]}
+          >
+            {uploading ? (
+              <ActivityIndicator color={colors.primary} />
+            ) : avatarUrl ? (
+              <Image source={{ uri: avatarUrl }} style={styles.avatarImage} contentFit="cover" />
+            ) : (
+              <MaterialCommunityIcons name="account-edit-outline" size={32} color={colors.primary} />
+            )}
+          </Pressable>
+          <Pressable onPress={handleChangePhoto} disabled={uploading} accessibilityRole="button">
+            <Text style={[styles.photoAction, { color: colors.primary }]}>
+              {uploading ? 'Uploading…' : avatarUrl ? 'Change photo' : 'Add a photo'}
+            </Text>
+          </Pressable>
           <Text style={[styles.introTitle, { color: colors.foreground }]}>Your profile</Text>
           <Text style={[styles.intro, { color: colors.mutedForeground }]}>
             Keep your display name up to date. Your email is managed separately in account security.
@@ -114,7 +151,9 @@ const styles = StyleSheet.create({
   backBtn: { padding: 4 },
   headerTitle: { fontSize: 20, fontFamily: 'Inter_700Bold' },
   content: { padding: 24, alignItems: 'stretch', gap: 16 },
-  avatar: { width: 70, height: 70, borderRadius: 22, alignItems: 'center', justifyContent: 'center', alignSelf: 'center' },
+  avatar: { width: 70, height: 70, borderRadius: 22, alignItems: 'center', justifyContent: 'center', alignSelf: 'center', overflow: 'hidden' },
+  avatarImage: { width: '100%', height: '100%' },
+  photoAction: { fontSize: 13, fontFamily: 'Inter_600SemiBold', textAlign: 'center' },
   introTitle: { fontSize: 22, fontFamily: 'Inter_700Bold', textAlign: 'center' },
   intro: { fontSize: 14, fontFamily: 'Inter_400Regular', lineHeight: 20, textAlign: 'center', marginBottom: 12 },
   field: { gap: 8 },
