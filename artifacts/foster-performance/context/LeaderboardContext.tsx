@@ -197,9 +197,11 @@ export function LeaderboardProvider({ children }: { children: React.ReactNode })
 
   const addFriend = useCallback(async (email: string) => {
     if (!user) return;
-    const profileResult = await supabase.from('profiles').select('id').eq('email', email.trim().toLowerCase()).maybeSingle();
-    if (profileResult.error || !profileResult.data) throw new Error('No Foster Performance member uses that email.');
-    const { error } = await supabase.from('friendships').insert({ requester_id: user.id, addressee_id: profileResult.data.id });
+    // Looked up through a definer function: RLS no longer exposes profiles you
+    // have no relationship with, and this returns only the id.
+    const lookup = await supabase.rpc('find_profile_id_by_email', { p_email: email });
+    if (lookup.error || !lookup.data) throw new Error('No Foster Performance member uses that email.');
+    const { error } = await supabase.from('friendships').insert({ requester_id: user.id, addressee_id: lookup.data as string });
     if (error) throw new Error(error.code === '23505' ? 'A friend request already exists.' : error.message);
   }, [user]);
 
@@ -242,7 +244,10 @@ async function fetchLeaderboardRows(orderColumn: 'total' | 'weekly'): Promise<Le
   if (userIds.length === 0) return [];
 
   const [profilesResult, streaksResult, membershipsResult] = await Promise.all([
-    supabase.from('profiles').select('id, full_name').in('id', userIds),
+    // RLS hides profiles you have no relationship with, but the leaderboard
+    // ranks everyone, so names come from a definer function that exposes only
+    // id and full_name.
+    supabase.rpc('leaderboard_display_names', { p_user_ids: userIds }),
     supabase.from('streaks').select('user_id, current_streak').in('user_id', userIds),
     supabase.from('league_memberships').select('user_id, league:leagues(*)').in('user_id', userIds),
   ]);
@@ -253,7 +258,7 @@ async function fetchLeaderboardRows(orderColumn: 'total' | 'weekly'): Promise<Le
   return (pointsResult.data ?? []).map((row: any, index) => ({
     rank: index + 1,
     userId: row.user_id,
-    displayName: (profilesResult.data ?? []).find((profile) => profile.id === row.user_id)?.full_name ?? 'Member',
+    displayName: (profilesResult.data ?? []).find((profile: { id: string; full_name: string }) => profile.id === row.user_id)?.full_name ?? 'Member',
     isMe: row.user_id === authData.user?.id,
     points: { total: row.total, weekly: row.weekly },
     streak: (streaksResult.data ?? []).find((streak) => streak.user_id === row.user_id)?.current_streak ?? 0,
