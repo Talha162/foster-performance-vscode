@@ -187,7 +187,9 @@ const styles = StyleSheet.create({
   settingRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   settingLabel: { fontSize: 14, fontFamily: 'Inter_600SemiBold' },
   settingDesc: { fontSize: 11, fontFamily: 'Inter_400Regular', marginTop: 1 },
-  valueInput: { flexDirection: 'row', alignItems: 'center', borderRadius: 10, borderWidth: 1, paddingHorizontal: 10, height: 40, minWidth: 80 },
+  // Fixed width, not minWidth: the flex:1 TextInput inside made this grow at
+  // narrow widths and squeezed the label column down to a few characters.
+  valueInput: { flexDirection: 'row', alignItems: 'center', borderRadius: 10, borderWidth: 1, paddingHorizontal: 10, height: 40, width: 104, flexShrink: 0 },
   valueText: { flex: 1, fontSize: 15, fontFamily: 'Inter_600SemiBold', textAlign: 'center' },
   suffix: { fontSize: 13, fontFamily: 'Inter_400Regular' },
   saveBtn: { height: 48, borderRadius: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
