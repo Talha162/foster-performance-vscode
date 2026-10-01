@@ -4,6 +4,8 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
+import { SupabaseNotConfigured } from '@/components/SupabaseNotConfigured';
+import { isSupabaseConfigured } from '@/lib/supabase';
 import { useFonts } from '@expo-google-fonts/inter/useFonts';
 import { Inter_400Regular } from '@expo-google-fonts/inter/400Regular';
 import { Inter_500Medium } from '@expo-google-fonts/inter/500Medium';
@@ -166,6 +168,16 @@ export default function RootLayout() {
   }, [fontsLoaded, fontError]);
 
   if (!fontsLoaded && !fontError) return null;
+
+  // Checked before the providers mount: every context calls Supabase on mount,
+  // so without this they would all fail at once and show nothing useful.
+  if (!isSupabaseConfigured) {
+    return (
+      <SafeAreaProvider>
+        <SupabaseNotConfigured />
+      </SafeAreaProvider>
+    );
+  }
 
   return (
     <SafeAreaProvider>
