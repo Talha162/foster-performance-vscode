@@ -22,6 +22,30 @@ additional_redirect_urls = ["foster-performance://**", "exp://127.0.0.1:8081", "
 jwt_expiry = 3600
 enable_signup = true
 
+# Signup confirmation is off because no SMTP provider is configured: Supabase's
+# built-in sender is rate limited to a handful of messages per hour, so new
+# accounts were being created and then permanently locked out, and anyone who
+# retried hit "email rate limit exceeded". Turn this back on at the same time
+# SMTP is configured, not before.
+[auth.email]
+enable_confirmations = false
+# The app's verification and password-reset screens are maxLength={6} inputs.
+# The project defaulted to 8, so the emailed code could not physically be typed
+# in and every attempt failed with "Token has expired or is invalid".
+otp_length = 6
+max_frequency = "1m0s"
+
+# The stock templates send a link, but the app asks for a code. The link also
+# pointed at site_url, which was still Supabase's localhost:3000 default, so it
+# opened a dead page in Safari. Both templates now carry {{ .Token }}.
+[auth.email.template.recovery]
+subject = "Reset your Foster Performance password"
+content_path = "./supabase/templates/recovery.html"
+
+[auth.email.template.confirmation]
+subject = "Confirm your Foster Performance account"
+content_path = "./supabase/templates/confirmation.html"
+
 [storage]
 enabled = true
 file_size_limit = "25MiB"
