@@ -68,24 +68,36 @@ their policies.
 
 ---
 
-## 4. Auth configuration — needs a decision
+## 4. Auth configuration — one command still to run
 
-**Self-registration currently cannot complete.** Signup requires email
-confirmation, and no SMTP provider is configured, so the confirmation email is
-never delivered and the account can never be activated. Anyone who registers is
-locked out permanently.
+The hosted project was never given this repo's `supabase/config.toml`. Its auth
+settings were still Supabase's defaults, which broke registration and password
+reset in three separate ways:
 
-Pick one:
+| Setting | Was | Should be | What it broke |
+| --- | --- | --- | --- |
+| `site_url` | `http://localhost:3000` | `foster-performance://` | Confirmation links opened a dead page in Safari |
+| `additional_redirect_urls` | empty | the app's schemes | Nothing could redirect back into the app |
+| `email.otp_length` | 8 | 6 | Reset and verify screens are `maxLength={6}`, so the emailed code could not be typed in at all |
+| `email.enable_confirmations` | on | off, for now | No SMTP is configured, so confirmations never arrive and accounts lock permanently |
 
-- **For testing now:** Supabase → Authentication → Providers → Email → turn
-  **off** "Confirm email". Registration then works immediately.
-- **For production:** configure SMTP under Authentication → Emails, and leave
-  confirmation on.
+All four are now declared in `supabase/config.toml`, along with recovery and
+confirmation email templates that send `{{ .Token }}` instead of a link. Apply
+them with:
 
-To rescue an account already stuck this way: Authentication → Users → select the
-user → Confirm email.
+```bash
+supabase config push    # answer y to auth, n to storage
+```
 
----
+**This needs a Supabase account with Owner or Administrator on the organisation.**
+A member-level token gets `403` on the auth endpoint. Decline the storage prompt:
+it would shrink the remote upload limit from 50MiB to 25MiB, which is unrelated.
+
+Turn `enable_confirmations` back on at the same time SMTP is configured, not
+before.
+
+To rescue an account already stuck unconfirmed: Authentication → Users → select
+the user → Confirm email.
 
 ## 5. Test accounts
 
