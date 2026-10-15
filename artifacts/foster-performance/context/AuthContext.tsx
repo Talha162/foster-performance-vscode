@@ -38,10 +38,13 @@ export interface SubscriptionUpdate {
 
 interface AuthContextType {
   user: User | null;
+  /** Address awaiting email confirmation, when signup produced no session. */
+  pendingEmail: string | null;
   isLoading: boolean;
   token: string | null;
   login: (email: string, password: string) => Promise<void>;
-  register: (name: string, email: string, password: string, accountType?: AccountType) => Promise<void>;
+  /** Resolves true when the account was created but still needs email confirmation. */
+  register: (name: string, email: string, password: string, accountType?: AccountType) => Promise<boolean>;
   logout: () => Promise<void>;
   updateUser: (updates: Partial<User>) => Promise<void>;
   upgradeToPremium: () => Promise<void>;
@@ -134,6 +137,10 @@ const profileColumns: Partial<Record<keyof User, keyof ProfileRow>> = {
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(null);
+  // Set when a signup completes without a session because the project requires
+  // email confirmation. There is no signed-in user to read an address from at
+  // that point, so the verification screen needs it from here.
+  const [pendingEmail, setPendingEmail] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   const refreshUser = useCallback(async (authUser?: SupabaseAuthUser | null) => {
@@ -190,8 +197,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
     if (error) throw new Error(error.message);
     if (!data.user) throw new Error('Supabase did not create the account.');
-    if (data.session) setToken(data.session.access_token);
+
+    // No session means the project has email confirmation switched on, so the
+    // account exists but cannot act yet. Loading the profile here would run as
+    // `anon` and come back "permission denied for table profiles", which is
+    // what the user used to see instead of being told to check their email.
+    if (!data.session) {
+      setPendingEmail(email.trim());
+      return true;
+    }
+
+    setToken(data.session.access_token);
     setUser(await loadUser(data.user));
+    setPendingEmail(null);
+    return false;
   }, []);
 
   const logout = useCallback(async () => {
@@ -262,18 +281,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (error) throw new Error(error.message);
   }, []);
 
+  // Both of these run while nobody is signed in, so they fall back to the
+  // address captured during signup rather than requiring a session.
   const sendVerification = useCallback(async () => {
-    if (!user) throw new Error('You must be signed in.');
-    const { error } = await supabase.auth.resend({ type: 'signup', email: user.email });
+    const email = user?.email ?? pendingEmail;
+    if (!email) throw new Error('No account is awaiting verification.');
+    const { error } = await supabase.auth.resend({ type: 'signup', email });
     if (error) throw new Error(error.message);
-  }, [user]);
+  }, [pendingEmail, user]);
 
   const verifyEmail = useCallback(async (code: string) => {
-    if (!user) throw new Error('You must be signed in.');
-    const { data, error } = await supabase.auth.verifyOtp({ email: user.email, token: code.trim(), type: 'email' });
+    const email = user?.email ?? pendingEmail;
+    if (!email) throw new Error('No account is awaiting verification.');
+    const { data, error } = await supabase.auth.verifyOtp({ email, token: code.trim(), type: 'email' });
     if (error) throw new Error(error.message);
+    if (data.session) setToken(data.session.access_token);
     if (data.user) setUser(await loadUser(data.user));
-  }, [user]);
+    setPendingEmail(null);
+  }, [pendingEmail, user]);
 
   const signOutAll = useCallback(async () => {
     const { error } = await supabase.auth.signOut({ scope: 'global' });
@@ -300,6 +325,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const value = useMemo<AuthContextType>(() => ({
     user,
+    pendingEmail,
     isLoading,
     token,
     login,
@@ -320,7 +346,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }), [
     user, isLoading, token, login, register, logout, updateUser, upgradeToPremium,
     updateSubscription, cancelSubscription, becomeCoach, forgotPassword, resetPassword,
-    sendVerification, verifyEmail, signOutAll, changePassword, changeEmail,
+    sendVerification, verifyEmail, signOutAll, changePassword, changeEmail, pendingEmail,
   ]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -19,7 +19,7 @@ import { useAuth } from '@/context/AuthContext';
 export default function VerifyEmailScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { user, verifyEmail, sendVerification } = useAuth();
+  const { user, pendingEmail, verifyEmail, sendVerification } = useAuth();
 
   const [code, setCode] = useState('');
   const [loading, setLoading] = useState(false);
@@ -99,7 +99,7 @@ export default function VerifyEmailScreen() {
           <Text style={[styles.subtitle, { color: colors.mutedForeground }]}>
             We sent a 6-character code to{' '}
             <Text style={{ color: colors.foreground, fontFamily: 'Inter_600SemiBold' }}>
-              {user?.email ?? 'your email'}
+              {user?.email ?? pendingEmail ?? 'your email'}
             </Text>
             . Enter it below to verify your account.
           </Text>
