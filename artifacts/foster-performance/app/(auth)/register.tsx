@@ -72,7 +72,15 @@ export default function RegisterScreen() {
     setLoading(true);
     setError('');
     try {
-      await register(name.trim(), email.trim().toLowerCase(), password, roleChoice as AccountType);
+      const needsConfirmation = await register(
+        name.trim(), email.trim().toLowerCase(), password, roleChoice as AccountType,
+      );
+      // The account exists but has no session yet, so onboarding would have
+      // nothing to write against. Send them to verification instead.
+      if (needsConfirmation) {
+        router.replace('/(auth)/verify-email');
+        return;
+      }
       // Route based on role
       if (roleChoice === 'coach_applicant') {
         router.replace('/coach-application');
