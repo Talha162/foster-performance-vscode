@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import {
   ActivityIndicator, Alert, Platform, Pressable, ScrollView,
   StyleSheet, Text, TextInput, View, RefreshControl,
@@ -11,8 +11,9 @@ import { useColors } from '@/hooks/useColors';
 import { BackgroundLayer } from '@/components/BackgroundLayer';
 import { useNutrition, Recipe } from '@/context/NutritionContext';
 import { useAuth } from '@/context/AuthContext';
+import { useApp, NutritionPlan } from '@/context/AppContext';
 
-const TABS = ['Today', 'Recipes', 'Grocery'] as const;
+const TABS = ['Today', 'Plans', 'Recipes', 'Grocery'] as const;
 type Tab = typeof TABS[number];
 
 const RECIPE_CATEGORIES = ['All', 'Breakfast', 'Lunch', 'Dinner', 'Smoothies', 'Snacks', 'Meal Prep'];
@@ -44,7 +45,8 @@ const MOTIVATIONAL = [
 export default function NutritionScreen() {
   const colors = useColors();
   const insets = useSafeAreaInsets();
-  const { token } = useAuth();
+  const { token, user } = useAuth();
+  const { nutritionPlans, activeNutritionId, catalogLoading } = useApp();
   const {
     dashboard, recipes, savedRecipeIds, groceryItems,
     dashboardLoading, recipesLoading,
@@ -58,6 +60,7 @@ export default function NutritionScreen() {
   const [recipeSearch, setRecipeSearch] = useState('');
   const [refreshing, setRefreshing] = useState(false);
   const [motivation] = useState(MOTIVATIONAL[Math.floor(Math.random() * MOTIVATIONAL.length)]);
+
   const [addingItem, setAddingItem] = useState(false);
   const [newItemName, setNewItemName] = useState('');
 
@@ -85,6 +88,32 @@ export default function NutritionScreen() {
   const waterTarget = profile?.water_target_ml ?? 2500;
   const waterPct = Math.min(1, waterMl / waterTarget);
   const score = dashboard?.nutrition_score ?? 0;
+
+  // Plans carry the same goal vocabulary as onboarding, so the member's own goal
+  // picks one out directly. The nutrition profile's goal wins over the account
+  // goal when it has been set, since it is the more specific answer.
+  const plansGoal = profile?.goal || user?.goal || '';
+  const recommendedPlan = useMemo(
+    () => nutritionPlans.find((plan) => plan.goal === plansGoal) ?? null,
+    [nutritionPlans, plansGoal],
+  );
+  const otherPlans = useMemo(
+    () => nutritionPlans.filter((plan) => plan.id !== recommendedPlan?.id),
+    [nutritionPlans, recommendedPlan],
+  );
+
+  const browsingUnfiltered = recipeCategory === 'All' && recipeSearch.trim() === '';
+  const goalRecipes = useMemo(
+    () => (plansGoal && browsingUnfiltered
+      ? recipes.filter((recipe) => recipe.goal_tags?.includes(plansGoal))
+      : []),
+    [browsingUnfiltered, plansGoal, recipes],
+  );
+  const otherRecipes = useMemo(() => {
+    if (goalRecipes.length === 0) return recipes;
+    const picked = new Set(goalRecipes.map((recipe) => recipe.id));
+    return recipes.filter((recipe) => !picked.has(recipe.id));
+  }, [goalRecipes, recipes]);
 
   const logsByCategory: Record<string, typeof logs> = {};
   for (const log of logs) {
@@ -376,6 +405,55 @@ export default function NutritionScreen() {
         )}
 
         {/* ─── RECIPES TAB ───────────────────────────────────────────────────── */}
+        {/* ─── PLANS TAB ─────────────────────────────────────────────────────── */}
+        {activeTab === 'Plans' && (
+          <>
+            {catalogLoading && nutritionPlans.length === 0 ? (
+              <View style={styles.centerLoad}>
+                <ActivityIndicator color={colors.primary} size="large" />
+              </View>
+            ) : nutritionPlans.length === 0 ? (
+              <View style={[styles.emptyRecipes, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                <MaterialCommunityIcons name="clipboard-text-outline" size={32} color={colors.mutedForeground} />
+                <Text style={[styles.emptyText, { color: colors.mutedForeground }]}>No meal plans available yet</Text>
+              </View>
+            ) : (
+              <>
+                <Text style={[styles.plansIntro, { color: colors.mutedForeground }]}>
+                  Full-day meal plans with timings, portions and macro targets. Activating one sets it as the
+                  plan shown on your dashboard.
+                </Text>
+                {recommendedPlan && (
+                  <>
+                    <Text style={[styles.plansHeading, { color: colors.foreground }]}>Matched to your goal</Text>
+                    <PlanCard
+                      plan={recommendedPlan}
+                      colors={colors}
+                      recommended
+                      isActive={activeNutritionId === recommendedPlan.id}
+                      locked={recommendedPlan.isPremium && !user?.isPremium}
+                      onPress={() => router.push(`/nutrition-plan/${recommendedPlan.id}`)}
+                    />
+                  </>
+                )}
+                <Text style={[styles.plansHeading, { color: colors.foreground }]}>
+                  {recommendedPlan ? 'All plans' : 'Meal plans'}
+                </Text>
+                {otherPlans.map((plan) => (
+                  <PlanCard
+                    key={plan.id}
+                    plan={plan}
+                    colors={colors}
+                    isActive={activeNutritionId === plan.id}
+                    locked={plan.isPremium && !user?.isPremium}
+                    onPress={() => router.push(`/nutrition-plan/${plan.id}`)}
+                  />
+                ))}
+              </>
+            )}
+          </>
+        )}
+
         {activeTab === 'Recipes' && (
           <>
             {/* Search */}
@@ -426,22 +504,51 @@ export default function NutritionScreen() {
                 <Text style={[styles.emptyText, { color: colors.mutedForeground }]}>No recipes found</Text>
               </View>
             ) : (
-              <View style={styles.recipeGrid}>
-                {recipes.map((recipe) => (
-                  <RecipeCard
-                    key={recipe.id}
-                    recipe={recipe}
-                    isSaved={savedRecipeIds.has(recipe.id)}
-                    colors={colors}
-                    onPress={() => router.push(`/nutrition-recipe/${recipe.id}`)}
-                    onSave={() => {
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                      if (savedRecipeIds.has(recipe.id)) unsaveRecipe(recipe.id);
-                      else saveRecipe(recipe.id);
-                    }}
-                  />
-                ))}
-              </View>
+              <>
+                {/* Goal-matched picks, but only while browsing unfiltered — once a
+                    category or search is applied the member has asked for something
+                    specific and splitting the results just hides half of them. */}
+                {goalRecipes.length > 0 && (
+                  <>
+                    <Text style={[styles.plansHeading, { color: colors.foreground }]}>
+                      Good for {plansGoal.toLowerCase()}
+                    </Text>
+                    <View style={styles.recipeGrid}>
+                      {goalRecipes.map((recipe) => (
+                        <RecipeCard
+                          key={recipe.id}
+                          recipe={recipe}
+                          isSaved={savedRecipeIds.has(recipe.id)}
+                          colors={colors}
+                          onPress={() => router.push(`/nutrition-recipe/${recipe.id}`)}
+                          onSave={() => {
+                            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                            if (savedRecipeIds.has(recipe.id)) unsaveRecipe(recipe.id);
+                            else saveRecipe(recipe.id);
+                          }}
+                        />
+                      ))}
+                    </View>
+                    <Text style={[styles.plansHeading, { color: colors.foreground }]}>All recipes</Text>
+                  </>
+                )}
+                <View style={styles.recipeGrid}>
+                  {otherRecipes.map((recipe) => (
+                    <RecipeCard
+                      key={recipe.id}
+                      recipe={recipe}
+                      isSaved={savedRecipeIds.has(recipe.id)}
+                      colors={colors}
+                      onPress={() => router.push(`/nutrition-recipe/${recipe.id}`)}
+                      onSave={() => {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                        if (savedRecipeIds.has(recipe.id)) unsaveRecipe(recipe.id);
+                        else saveRecipe(recipe.id);
+                      }}
+                    />
+                  ))}
+                </View>
+              </>
             )}
           </>
         )}
@@ -560,6 +667,77 @@ function MacroBar({ label, value, target, color, unit, colors }: any) {
   );
 }
 
+function PlanCard({ plan, colors, onPress, isActive, locked, recommended }: {
+  plan: NutritionPlan; colors: any; onPress: () => void;
+  isActive: boolean; locked: boolean; recommended?: boolean;
+}) {
+  return (
+    <Pressable
+      onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onPress(); }}
+      style={({ pressed }) => [
+        styles.planCard,
+        {
+          backgroundColor: colors.card,
+          borderColor: recommended ? colors.accent : isActive ? colors.primary : colors.border,
+          borderWidth: recommended || isActive ? 2 : 1,
+          opacity: pressed ? 0.85 : 1,
+        },
+      ]}
+    >
+      <View style={styles.planTopRow}>
+        <View style={styles.planBadges}>
+          {recommended && (
+            <View style={[styles.planBadge, { backgroundColor: colors.accent + '22' }]}>
+              <MaterialCommunityIcons name="star" size={11} color={colors.accent} />
+              <Text style={[styles.planBadgeText, { color: colors.accent }]}>RECOMMENDED</Text>
+            </View>
+          )}
+          {isActive && (
+            <View style={[styles.planBadge, { backgroundColor: colors.primary + '22' }]}>
+              <Text style={[styles.planBadgeText, { color: colors.primary }]}>ACTIVE</Text>
+            </View>
+          )}
+        </View>
+        {locked && <MaterialCommunityIcons name="crown" size={16} color={colors.accent} />}
+      </View>
+
+      <Text style={[styles.planTitle, { color: colors.foreground }]}>{plan.title}</Text>
+      <Text style={[styles.planDescription, { color: colors.mutedForeground }]} numberOfLines={2}>
+        {plan.description}
+      </Text>
+
+      <View style={styles.planMetaRow}>
+        <View style={[styles.planChip, { backgroundColor: colors.muted }]}>
+          <MaterialCommunityIcons name="target" size={11} color={colors.primary} />
+          <Text style={[styles.planChipText, { color: colors.foreground }]}>{plan.goal}</Text>
+        </View>
+        <View style={[styles.planChip, { backgroundColor: colors.muted }]}>
+          <MaterialCommunityIcons name="silverware-fork-knife" size={11} color={colors.mutedForeground} />
+          <Text style={[styles.planChipText, { color: colors.foreground }]}>
+            {plan.meals.length} {plan.meals.length === 1 ? 'meal' : 'meals'}
+          </Text>
+        </View>
+      </View>
+
+      <View style={[styles.planMacroRow, { borderTopColor: colors.border }]}>
+        <PlanMacro label="kcal" value={`${plan.dailyCalories}`} colors={colors} />
+        <PlanMacro label="protein" value={`${plan.protein}g`} colors={colors} />
+        <PlanMacro label="carbs" value={`${plan.carbs}g`} colors={colors} />
+        <PlanMacro label="fat" value={`${plan.fat}g`} colors={colors} />
+      </View>
+    </Pressable>
+  );
+}
+
+function PlanMacro({ label, value, colors }: { label: string; value: string; colors: any }) {
+  return (
+    <View style={styles.planMacro}>
+      <Text style={[styles.planMacroValue, { color: colors.foreground }]}>{value}</Text>
+      <Text style={[styles.planMacroLabel, { color: colors.mutedForeground }]}>{label}</Text>
+    </View>
+  );
+}
+
 function RecipeCard({ recipe, isSaved, colors, onPress, onSave }: { recipe: Recipe; isSaved: boolean; colors: any; onPress: () => void; onSave: () => void }) {
   const totalTime = (recipe.prep_time_mins || 0) + (recipe.cook_time_mins || 0);
   const CATEGORY_COLORS: Record<string, string> = {
@@ -606,6 +784,22 @@ function RecipeCard({ recipe, isSaved, colors, onPress, onSave }: { recipe: Reci
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
+  plansIntro: { fontSize: 13, fontFamily: 'Inter_400Regular', lineHeight: 19, marginBottom: 2 },
+  plansHeading: { fontSize: 16, fontFamily: 'Inter_700Bold', marginTop: 6 },
+  planCard: { borderRadius: 16, padding: 16, gap: 8 },
+  planTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', minHeight: 18 },
+  planBadges: { flexDirection: 'row', gap: 6, flexWrap: 'wrap', flex: 1 },
+  planBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
+  planBadgeText: { fontSize: 9, fontFamily: 'Inter_700Bold', letterSpacing: 0.6 },
+  planTitle: { fontSize: 17, fontFamily: 'Inter_700Bold' },
+  planDescription: { fontSize: 13, fontFamily: 'Inter_400Regular', lineHeight: 18 },
+  planMetaRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
+  planChip: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 },
+  planChipText: { fontSize: 11, fontFamily: 'Inter_600SemiBold' },
+  planMacroRow: { flexDirection: 'row', borderTopWidth: 1, paddingTop: 10, marginTop: 2 },
+  planMacro: { flex: 1, alignItems: 'center', gap: 1 },
+  planMacroValue: { fontSize: 14, fontFamily: 'Inter_700Bold' },
+  planMacroLabel: { fontSize: 10, fontFamily: 'Inter_400Regular' },
   root: { flex: 1 },
   header: { paddingHorizontal: 20, paddingBottom: 0, borderBottomWidth: 1 },
   headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', paddingBottom: 12 },

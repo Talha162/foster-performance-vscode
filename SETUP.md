@@ -58,10 +58,22 @@ can reach. Check that variable is populated and that the Repl's port is public.
 
 ## 3. Supabase — already done, do not redo
 
-The hosted project is `mqhpfdofvvjkoccaqtqa`. **All 20 migrations are already
-applied** and the content catalogue is seeded (25 workout programs, 4 nutrition
-plans, 4 rehab protocols). Running `supabase db push` against it is unnecessary
-and `supabase db reset` would destroy the seeded data.
+The hosted project is `mqhpfdofvvjkoccaqtqa`. There are 22 migrations; the
+first 21 are applied and the catalogue is seeded (25 workout programs, 4
+nutrition plans, 4 rehab protocols). `supabase db reset` would destroy that
+seeded data.
+
+**`202610300001_seed_recipes.sql` has not been applied yet.** It fills the
+`recipes` table, which had never been seeded, so the Recipes tab showed "No
+recipes found" on every account. Apply it with `supabase db push` once the
+project is running.
+
+> **The project is currently paused.** Supabase suspends free-tier projects
+> after a period of inactivity and withdraws their DNS record, so
+> `mqhpfdofvvjkoccaqtqa.supabase.co` does not resolve and nothing in the app can
+> load. An organisation Owner has to press **Restore** on the project in the
+> Supabase dashboard; a Developer-level account cannot. Nothing else here works
+> until that is done.
 
 Storage buckets `avatars`, `credentials` and `message-attachments` exist with
 their policies.
